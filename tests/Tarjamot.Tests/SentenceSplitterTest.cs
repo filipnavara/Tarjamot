@@ -22,12 +22,35 @@ public class SentenceSplitterTest
 	[TestCase("Ahoj.Jak se m\u00E1\u0161?", new[] { "Ahoj.Jak se m\u00E1\u0161?" })]
 	[TestCase("What? Really! Yes.", new[] { "What?", "Really!", "Yes." })]
 	[TestCase("He said \"Stop.\" Then he left.", new[] { "He said \"Stop.\"", "Then he left." })]
-	[TestCase("First line\nSecond line", new[] { "First line", "Second line" })]
-	[TestCase("  ", new string[0])]
-	public void Split(string text, string[] expected)
-	{
-		Assert.That(SentenceSplitter.Split(text), Is.EqualTo(expected));
-	}
+		[TestCase("First line\nSecond line", new[] { "First line", "Second line" })]
+		[TestCase("  ", new string[0])]
+		// SB8a: a terminator followed by SContinue does not end the sentence; the semicolons
+		// U+003B and U+037E (Greek ano teleia) belong to SContinue.
+		[TestCase("He said hi!; then left.", new[] { "He said hi!; then left." })]
+		[TestCase("x!\uFE14 y", new[] { "x!\uFE14 y" })]
+		// STerms beyond the Latin/Greek/CJK set: Khmer khan, Coptic old Nubian full stop, the
+		// vertical exclamation mark and a supplementary-plane terminator (Brahmi danda).
+		[TestCase("spam\u17D4 eggs\u17D4", new[] { "spam\u17D4", "eggs\u17D4" })]
+		[TestCase("a\u2CF9 b", new[] { "a\u2CF9", "b" })]
+		[TestCase("one\uFE15 two", new[] { "one\uFE15", "two" })]
+		[TestCase("a\U00011047 b", new[] { "a\U00011047", "b" })]
+		public void Split(string text, string[] expected)
+		{
+			Assert.That(SentenceSplitter.Split(text), Is.EqualTo(expected));
+		}
+
+		// The binary search in Classify silently misclassifies an unsorted or duplicated list.
+		[Test]
+		public void PropertyListsAreSortedAndDistinct()
+		{
+			Assert.Multiple(() =>
+			{
+				Assert.That(SentenceSplitter.STermCodePoints, Is.Unique);
+				Assert.That(SentenceSplitter.STermCodePoints, Is.Ordered);
+				Assert.That(SentenceSplitter.SContinueCodePoints, Is.Unique);
+				Assert.That(SentenceSplitter.SContinueCodePoints, Is.Ordered);
+			});
+		}
 
 	[Test]
 	public void SplitRangesExcludeWhitespace()
