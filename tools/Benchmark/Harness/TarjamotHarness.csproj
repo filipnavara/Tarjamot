@@ -10,6 +10,7 @@
     <!-- Not copied: each run loads the engine from the build output given on the command line, so
          one harness binary compares a baseline and a candidate build. -->
     <ProjectReference Include="..\..\..\src\Tarjamot\Tarjamot.csproj" Private="false" />
+    <ProjectReference Include="..\..\..\src\Tarjamot.Markup\Tarjamot.Markup.csproj" Private="false" />
   </ItemGroup>
 
 </Project>

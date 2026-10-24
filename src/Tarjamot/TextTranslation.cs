@@ -63,29 +63,36 @@ internal static class TextTranslation
 
 	internal static string Assemble(string text, Range[] ranges, IReadOnlyList<string> sentences, string targetLanguage)
 	{
-		// Japanese and Chinese use full-width punctuation and no space between sentences.
-		bool omitSpaces = targetLanguage.StartsWith("ja", StringComparison.OrdinalIgnoreCase) || targetLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
+		bool omitSpaces = OmitsSpacesBetweenSentences(targetLanguage);
 		var result = new StringBuilder(text.Length);
 		int previousEnd = 0;
 		for (int i = 0; i < ranges.Length; i++)
 		{
-			AppendGap(text.AsSpan(previousEnd, ranges[i].Start.Value - previousEnd), betweenSentences: true);
+			AppendGap(result, text.AsSpan(previousEnd, ranges[i].Start.Value - previousEnd), betweenSentences: true, omitSpaces);
 			result.Append(sentences[i]);
 			previousEnd = ranges[i].End.Value;
 		}
-		AppendGap(text.AsSpan(previousEnd), betweenSentences: false);
+		AppendGap(result, text.AsSpan(previousEnd), betweenSentences: false, omitSpaces);
 		return result.ToString();
+	}
 
-		void AppendGap(ReadOnlySpan<char> gap, bool betweenSentences)
-		{
-			if (gap.Contains('\n'))
-				result.Append(gap);
-			else if (omitSpaces)
-				return;
-			else if (!gap.IsEmpty)
-				result.Append(gap);
-			else if (betweenSentences && result.Length > 0)
-				result.Append(' ');
-		}
+	/// <summary>Japanese and Chinese use full-width punctuation and no space between sentences.</summary>
+	internal static bool OmitsSpacesBetweenSentences(string targetLanguage) =>
+		targetLanguage.StartsWith("ja", StringComparison.OrdinalIgnoreCase) || targetLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
+
+	/// <summary>
+	/// Appends the source text between two sentences: kept if it has a line break, dropped for
+	/// Japanese and Chinese, otherwise kept, or a space if there was none between two sentences.
+	/// </summary>
+	internal static void AppendGap(StringBuilder result, ReadOnlySpan<char> gap, bool betweenSentences, bool omitSpaces)
+	{
+		if (gap.Contains('\n'))
+			result.Append(gap);
+		else if (omitSpaces)
+			return;
+		else if (!gap.IsEmpty)
+			result.Append(gap);
+		else if (betweenSentences && result.Length > 0)
+			result.Append(' ');
 	}
 }

@@ -37,13 +37,14 @@ public sealed class LocalTranslator : IDisposable
 		RunAsync(source, target, models => TextTranslation.Translate(texts, models, target, options.SplitSentences, cancellationToken), cancellationToken);
 
 	/// <summary>
-	/// Translates HTML fragments as Firefox does: the text of each fragment is translated in whole
-	/// sentences, and its markup (links, emphasis, images and so on) is placed around the translated words
-	/// they align with. Block elements such as &lt;p&gt; or &lt;li&gt; separate sentences. The
-	/// fragments must be well-formed (every element closed, except void elements like &lt;br&gt;).
+	/// Translates HTML fragments: the text of each fragment is translated in whole sentences, and its
+	/// markup (links, emphasis, images and so on) is placed around the translated words it aligns
+	/// with, by <see cref="TranslationOptions.MarkupTranslator"/>. Block elements such as &lt;p&gt;
+	/// or &lt;li&gt; separate sentences. The fragments must be well-formed (every element closed,
+	/// except void elements like &lt;br&gt;); malformed markup throws <see cref="FormatException"/>.
 	/// </summary>
 	public Task<string[]> TranslateMarkupAsync(string source, string target, IReadOnlyList<string> fragments, CancellationToken cancellationToken = default) =>
-		RunAsync(source, target, models => Markup.MarkupTranslation.Translate(fragments, models, cancellationToken), cancellationToken);
+		RunAsync(source, target, models => options.MarkupTranslator.Translate(fragments, models, cancellationToken), cancellationToken);
 
 	// Runs the translation on the thread pool with the route's models leased from the cache.
 	Task<string[]> RunAsync(string source, string target, Func<TranslationModel[], string[]> translate, CancellationToken cancellationToken)

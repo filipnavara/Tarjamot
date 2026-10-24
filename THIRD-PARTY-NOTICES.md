@@ -1,30 +1,38 @@
 # Third-party notices
 
 Tarjamot is MIT-licensed (see [LICENSE](LICENSE)). Parts of it are ports of, or follow, the
-projects below. Files ported from MPL-2.0 code carry the MPL-2.0 header and remain under that
-license; the one file with BSD-licensed origins carries that notice too. The NuGet package's
-license expression is `MIT AND MPL-2.0 AND BSD-3-Clause`.
+projects below. The ports of MPL-2.0 code are in a separate package, Tarjamot.Markup: they carry
+the MPL-2.0 header and remain under that license, and the one file with BSD-licensed origins
+carries that notice too. The NuGet packages' license expressions are `MIT` for Tarjamot and
+`MPL-2.0 AND BSD-3-Clause` for Tarjamot.Markup.
 
 ## bergamot-translator (MPL-2.0)
 
 https://github.com/browsermt/bergamot-translator
 
-Ported, MPL-2.0 header in the file:
+Ported, MPL-2.0 header in the file, all in the Tarjamot.Markup package:
 
-- `src/Tarjamot/Markup/AnnotatedText.cs`: `src/translator/annotation.{h,cpp}`
-- `src/Tarjamot/Markup/HtmlMarkup.cs`: `src/translator/html.{h,cpp}`
-- `src/Tarjamot/Markup/MarkupTranslation.cs`: the HTML and alignment parts of
+- `src/Tarjamot.Markup/AnnotatedText.cs`: `src/translator/annotation.{h,cpp}`
+- `src/Tarjamot.Markup/HtmlMarkup.cs`: `src/translator/html.{h,cpp}`
+- `src/Tarjamot.Markup/MarkupTranslation.cs`: the HTML and alignment parts of
   `src/translator/response_builder.cpp`, `text_processor.cpp` and `translation_model.cpp`
   (`remapAlignments`)
-- `src/Tarjamot/Markup/HtmlScanner.cs`: `src/translator/xh_scanner.{h,cpp}`, Bergamot's modified
+- `src/Tarjamot.Markup/HtmlScanner.cs`: `src/translator/xh_scanner.{h,cpp}`, Bergamot's modified
   copy of the BSD-licensed xh_scanner below (the modifications are MPL-2.0)
 
+`src/Tarjamot.Markup/BergamotMarkupTranslator.cs` is new code in the package, MPL-2.0 like it.
+
 The text translation (`TextTranslation.cs`) reproduces the behavior of `AnnotatedText` and the
-WASM build's batching without copying their code.
+WASM build's batching without copying their code. `ProjectedMarkupTranslator` and
+`src/Tarjamot/Projection/` are written for Tarjamot (MIT) after the detag-and-project approach
+described by Zenkel, Wuebker and DeNero (*Automatic Bilingual Markup Transfer*, 2021). They
+use a different algorithm and copy no code from Bergamot or from the ports above; the pivot
+alignment composition follows the same idea as Bergamot's `remapAlignments` (a matrix product
+through the English characters) with its own code.
 
 ## xh_scanner (BSD-3-Clause)
 
-`src/Tarjamot/Markup/HtmlScanner.cs` is a port of bergamot-translator's
+`src/Tarjamot.Markup/HtmlScanner.cs` is a port of bergamot-translator's
 `src/translator/xh_scanner.{h,cpp}`, which is Andrew Fedoniouk's "Fast and Compact HTML/XML
 Scanner/Tokenizer" (https://www.codeproject.com/Articles/14076, published under CodeProject's
 "The BSD License", the 3-clause BSD license) as modified by Bergamot. The modifications are

@@ -84,10 +84,15 @@ jobs:
         shell: bash
         run: |
           dotnet pack src/Tarjamot -c Release -o artifacts
+          dotnet pack src/Tarjamot.Markup -c Release -o artifacts
           # A release tag must name the version Nerdbank.GitVersioning computes (see nbgv tag).
-          if [[ "$GITHUB_REF" == refs/tags/v* && ! -f "artifacts/Tarjamot.${GITHUB_REF#refs/tags/v}.nupkg" ]]; then
-            echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match the package version: $(ls artifacts)"
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            for package in Tarjamot Tarjamot.Markup; do
+              if [[ ! -f "artifacts/$package.${GITHUB_REF#refs/tags/v}.nupkg" ]]; then
+                echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match the version of $package: $(ls artifacts)"
+                exit 1
+              fi
+            done
           fi
       - uses: actions/upload-artifact@v7
         with:

@@ -7,5 +7,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Tarjamot\Tarjamot.csproj" />
+    <ProjectReference Include="..\..\src\Tarjamot.Markup\Tarjamot.Markup.csproj" />
   </ItemGroup>
 </Project>

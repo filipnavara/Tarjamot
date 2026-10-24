@@ -10,9 +10,9 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>Tarjamot</PackageId>
-    <Description>Local machine translation with the Firefox Translations (Bergamot) models in pure .NET: int8 Marian inference matching Firefox's engine, model download from Mozilla, pivoting through English, and HTML with inline markup.</Description>
+    <Description>Local machine translation with the Firefox Translations (Bergamot) models in pure .NET: int8 Marian inference matching Firefox's engine, model download from Mozilla, pivoting through English, and HTML with inline markup. Add Tarjamot.Markup for Firefox's exact HTML placement.</Description>
     <PackageTags>translation;machine-translation;bergamot;marian;firefox;offline;nmt</PackageTags>
-    <PackageLicenseExpression>MIT AND MPL-2.0 AND BSD-3-Clause</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1573;CS1591</NoWarn>
@@ -39,6 +39,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Tarjamot.Tests" />
+    <!-- Bergamot's HTML mode, MPL-2.0, pinned to this exact version. -->
+    <InternalsVisibleTo Include="Tarjamot.Markup" />
     <InternalsVisibleTo Include="TarjamotMicrobenchmark" />
   </ItemGroup>
 </Project>
