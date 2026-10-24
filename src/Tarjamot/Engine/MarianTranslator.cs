@@ -337,8 +337,8 @@ internal sealed class MarianTranslator
 				headDim, padded, scale, headScores);
 			var scores0 = headScores.AsSpan(0, keyLength);
 			var scores1 = headScores.AsSpan(padded, keyLength);
-			MarianMath.Softmax(scores0, keyLength);
-			MarianMath.Softmax(scores1, keyLength);
+			MarianMath.Softmax(scores0);
+			MarianMath.Softmax(scores1);
 			if (h == 0 && alignment != null)
 				scores0.CopyTo(alignment);
 			var values = v.AsSpan(valueStart * dim + h * headDim);
@@ -399,7 +399,7 @@ internal sealed class MarianTranslator
 					acc = acc + Vector128.Create(q[queryBase + d]) * Vector128.LoadUnsafe(ref rk, (nuint)(headBase + j + d * padded));
 				(scale128 * acc).StoreUnsafe(ref rs, (nuint)j);
 			}
-			MarianMath.Softmax(headScores.AsSpan(0, keyLength), keyLength);
+			MarianMath.Softmax(headScores.AsSpan(0, keyLength));
 			if (h == 0 && alignment != null)
 				headScores.AsSpan(0, keyLength).CopyTo(alignment);
 			MarianMath.AttentionValues(headScores.AsSpan(0, keyLength),
