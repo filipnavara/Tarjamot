@@ -33,7 +33,9 @@ internal sealed class HtmlScanner
 
 	readonly byte[] input;
 	int position;
-	Func<TokenType> scan;
+	// The scanner's state: a method of the original, kept as an enum because assigning a method
+	// group to a delegate allocates every time.
+	State state;
 	// Value: either a slice of the input or a decoded entity.
 	byte[] valueSource;
 	int valueStart, valueLength;
@@ -45,7 +47,6 @@ internal sealed class HtmlScanner
 	{
 		this.input = input;
 		valueSource = input;
-		scan = ScanBody;
 	}
 
 	public byte[] Input => input;
@@ -53,7 +54,16 @@ internal sealed class HtmlScanner
 	/// <summary>Start of the current token in the input (Scanner::start()).</summary>
 	public int Start { get; private set; }
 
-	public TokenType Next() => scan();
+	public TokenType Next() => state switch
+	{
+		State.Attribute => ScanAttribute(),
+		State.Comment => ScanComment(),
+		State.ProcessingInstruction => ScanProcessingInstruction(),
+		State.Special => ScanSpecial(),
+		_ => ScanBody(),
+	};
+
+	enum State { Body, Attribute, Comment, ProcessingInstruction, Special }
 
 	public ReadOnlySpan<byte> Value => valueSource.AsSpan(valueStart, valueLength);
 
@@ -114,17 +124,17 @@ internal sealed class HtmlScanner
 					EqualsIgnoreCase(tag, "iframe"u8) || EqualsIgnoreCase(tag, "noembed"u8) || EqualsIgnoreCase(tag, "noscript"u8) ||
 					EqualsIgnoreCase(tag, "noframes"u8))
 				{
-					scan = ScanSpecial;
+					state = State.Special;
 					return ScanSpecial();
 				}
-				scan = ScanBody;
+				state = State.Body;
 				return ScanBody();
 			case (byte)'/':
 				Consume();
 				if (Peek() == (byte)'>')
 				{
 					Consume();
-					scan = ScanBody;
+					state = State.Body;
 					return TokenType.TagEnd;
 				}
 				return TokenType.Error;
@@ -219,12 +229,12 @@ internal sealed class HtmlScanner
 			// Tested at every character, thus eager: "<?xml" matches on "?".
 			if (Tag.SequenceEqual("!--"u8))
 			{
-				scan = ScanComment;
+				state = State.Comment;
 				return TokenType.CommentStart;
 			}
 			if (Tag.SequenceEqual("?"u8))
 			{
-				scan = ScanProcessingInstruction;
+				state = State.ProcessingInstruction;
 				return TokenType.ProcessingInstructionStart;
 			}
 		}
@@ -234,7 +244,7 @@ internal sealed class HtmlScanner
 		if (isTail)
 			return Consume() == (byte)'>' ? TokenType.TagEnd : TokenType.Error;
 
-		scan = ScanAttribute;
+		state = State.Attribute;
 		return TokenType.TagStart;
 	}
 
@@ -304,7 +314,7 @@ internal sealed class HtmlScanner
 		if (gotTail)
 		{
 			Start = position - 3; // "-->"
-			scan = ScanBody;
+			state = State.Body;
 			gotTail = false;
 			return TokenType.CommentEnd;
 		}
@@ -331,7 +341,7 @@ internal sealed class HtmlScanner
 		if (gotTail)
 		{
 			Start = position - 2; // "?>"
-			scan = ScanBody;
+			state = State.Body;
 			gotTail = false;
 			return TokenType.ProcessingInstructionEnd;
 		}
@@ -359,7 +369,7 @@ internal sealed class HtmlScanner
 		if (gotTail)
 		{
 			Start = position - (tagLength + 3); // "</tag>"
-			scan = ScanBody;
+			state = State.Body;
 			gotTail = false;
 			return TokenType.TagEnd;
 		}
