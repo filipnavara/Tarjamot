@@ -88,7 +88,8 @@ the model's quantization format (`src/Tarjamot/Engine/Int8Gemm*.cs`, `QuantizedM
 
 https://musl.libc.org. Copyright (c) 2005-2020 Rich Felker, et al.
 
-`src/Tarjamot/Engine/MuslMath.cs` ports musl's `expf`, `sinf` and `cosf`, including their tables.
+`src/Tarjamot/Engine/MuslMath.cs` ports musl's `expf` and `sincosf` (the `sinf` and `cosf` kernels and argument reduction),
+including their tables.
 
 ## SentencePiece (Apache-2.0)
 

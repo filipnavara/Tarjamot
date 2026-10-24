@@ -1,4 +1,6 @@
 #if !TARJAMOT_PLATFORM_MATH
+using System.Runtime.Intrinsics;
+
 namespace Tarjamot.Engine;
 
 /// <summary>
@@ -39,7 +41,7 @@ internal static class MuslMath
 	static readonly double K2 = BitConverter.Int64BitsToDouble(unchecked((long)0xbf56c087e80f1e27));
 	static readonly double K3 = BitConverter.Int64BitsToDouble(0x3ef99342e0ee5069);
 
-	// __rem_pio2f.c and the multiples of pi/2 in sinf.c / cosf.c
+	// __rem_pio2f.c and the multiples of pi/2 in sincosf.c
 	const double ToInt = 6755399441055744.0; // 1.5 / DBL_EPSILON
 	static readonly double Pio4 = BitConverter.Int64BitsToDouble(0x3fe921fb60000000);
 	static readonly double InvPio2 = BitConverter.Int64BitsToDouble(0x3fe45f306dc9c883);
@@ -78,66 +80,130 @@ internal static class MuslMath
 		return (float)y;
 	}
 
-	public static float Sinf(float x)
+	/// <summary>
+	/// musl's sincosf: the bits of sinf and cosf, with one range check and argument reduction.
+	/// </summary>
+	public static void SinCosf(float x, out float sin, out float cos)
 	{
 		uint ix = BitConverter.SingleToUInt32Bits(x);
 		bool sign = ix >> 31 != 0;
 		ix &= 0x7fffffff;
 		if (ix <= 0x3f490fda)
-			return ix < 0x39800000 ? x : SinKernel(x);
+		{
+			if (ix < 0x39800000)
+			{
+				sin = x;
+				cos = 1f;
+				return;
+			}
+			sin = SinKernel(x);
+			cos = CosKernel(x);
+			return;
+		}
 		if (ix <= 0x407b53d1)
 		{
 			if (ix <= 0x4016cbe3)
-				return sign ? -CosKernel(x + Pio2) : CosKernel(x - Pio2);
-			return SinKernel(sign ? -(x + 2 * Pio2) : -(x - 2 * Pio2));
+			{
+				if (sign)
+				{
+					sin = -CosKernel(x + Pio2);
+					cos = SinKernel(x + Pio2);
+				}
+				else
+				{
+					sin = CosKernel(Pio2 - x);
+					cos = SinKernel(Pio2 - x);
+				}
+				return;
+			}
+			sin = -SinKernel(sign ? x + 2 * Pio2 : x - 2 * Pio2);
+			cos = -CosKernel(sign ? x + 2 * Pio2 : x - 2 * Pio2);
+			return;
 		}
 		if (ix <= 0x40e231d5)
 		{
 			if (ix <= 0x40afeddf)
-				return sign ? CosKernel(x + 3 * Pio2) : -CosKernel(x - 3 * Pio2);
-			return SinKernel(sign ? x + 4 * Pio2 : x - 4 * Pio2);
+			{
+				if (sign)
+				{
+					sin = CosKernel(x + 3 * Pio2);
+					cos = -SinKernel(x + 3 * Pio2);
+				}
+				else
+				{
+					sin = -CosKernel(x - 3 * Pio2);
+					cos = SinKernel(x - 3 * Pio2);
+				}
+				return;
+			}
+			sin = SinKernel(sign ? x + 4 * Pio2 : x - 4 * Pio2);
+			cos = CosKernel(sign ? x + 4 * Pio2 : x - 4 * Pio2);
+			return;
 		}
 		if (ix >= 0x7f800000)
-			return x - x;
-		int n = RemPio2f(x, out double y);
-		return (n & 3) switch
 		{
-			0 => SinKernel(y),
-			1 => CosKernel(y),
-			2 => SinKernel(-y),
-			_ => -CosKernel(y),
+			sin = cos = x - x;
+			return;
+		}
+		int n = RemPio2f(x, out double y);
+		float s = SinKernel(y), c = CosKernel(y);
+		(sin, cos) = (n & 3) switch
+		{
+			0 => (s, c),
+			1 => (c, -s),
+			2 => (-s, -c),
+			_ => (-c, s),
 		};
 	}
 
-	public static float Cosf(float x)
+	/// <summary>
+	/// <see cref="SinCosf(float, out float, out float)"/> on four non-negative values below
+	/// 2^28 * pi/2 (where __rem_pio2f takes its large-argument path), with the same bits. Each lane takes musl's reduction for its
+	/// range: none below pi/4, x - k * pi/2 in one step up to 9pi/4, __rem_pio2f above. Both kernels
+	/// run on the reduced value, and the quadrant picks and negates the results.
+	/// </summary>
+	public static void SinCosf(Vector128<float> x, out Vector128<float> sin, out Vector128<float> cos)
 	{
-		uint ix = BitConverter.SingleToUInt32Bits(x);
-		bool sign = ix >> 31 != 0;
-		ix &= 0x7fffffff;
-		if (ix <= 0x3f490fda)
-			return ix < 0x39800000 ? 1f : CosKernel(x);
-		if (ix <= 0x407b53d1)
-		{
-			if (ix > 0x4016cbe3)
-				return -CosKernel(sign ? x + 2 * Pio2 : x - 2 * Pio2);
-			return sign ? SinKernel(x + Pio2) : SinKernel(Pio2 - x);
-		}
-		if (ix <= 0x40e231d5)
-		{
-			if (ix > 0x40afeddf)
-				return CosKernel(sign ? x + 4 * Pio2 : x - 4 * Pio2);
-			return sign ? SinKernel(-x - 3 * Pio2) : SinKernel(x - 3 * Pio2);
-		}
-		if (ix >= 0x7f800000)
-			return x - x;
-		int n = RemPio2f(x, out double y);
-		return (n & 3) switch
-		{
-			0 => CosKernel(y),
-			1 => SinKernel(-y),
-			2 => -CosKernel(y),
-			_ => SinKernel(y),
-		};
+		var ix = x.AsUInt32();
+		// Also rejects negative values and NaNs, whose sign or exponent bits are above the limit.
+		if (Vector128.GreaterThanOrEqualAny(ix, Vector128.Create(0x4dc90fdbu)))
+			throw new ArgumentOutOfRangeException(nameof(x), "Negative or large arguments are not supported.");
+		// The multiple of pi/2 that the mid-range branches subtract (0 for |x| <= pi/4).
+		var k = (Vector128.GreaterThan(ix, Vector128.Create(0x3f490fdau)).AsSingle() & Vector128<float>.One)
+			+ (Vector128.GreaterThan(ix, Vector128.Create(0x4016cbe3u)).AsSingle() & Vector128<float>.One)
+			+ (Vector128.GreaterThan(ix, Vector128.Create(0x407b53d1u)).AsSingle() & Vector128<float>.One)
+			+ (Vector128.GreaterThan(ix, Vector128.Create(0x40afeddfu)).AsSingle() & Vector128<float>.One);
+		var large = Vector128.GreaterThan(ix, Vector128.Create(0x40e231d5u)).AsInt32();
+		var (xLo, xHi) = Vector128.Widen(x);
+		var (kLo, kHi) = Vector128.Widen(k);
+		var (largeLo, largeHi) = Vector128.Widen(large);
+		var (yLo, nLo) = Reduce(xLo, kLo, largeLo.AsDouble());
+		var (yHi, nHi) = Reduce(xHi, kHi, largeHi.AsDouble());
+		var s = Vector128.Narrow(SinKernel(yLo), SinKernel(yHi));
+		var c = Vector128.Narrow(CosKernel(yLo), CosKernel(yHi));
+		var n = Vector128.Narrow(nLo, nHi).AsUInt32();
+		var swap = Vector128.Equals(n & Vector128<uint>.One, Vector128<uint>.One).AsSingle();
+		// Negate sin in quadrants 2 and 3, cos in quadrants 1 and 2.
+		var sinSign = (n & Vector128.Create(2u)) << 30;
+		var cosSign = ((n + Vector128<uint>.One) & Vector128.Create(2u)) << 30;
+		var tiny = Vector128.LessThan(ix, Vector128.Create(0x39800000u)).AsSingle();
+		sin = Vector128.ConditionalSelect(tiny, x, Vector128.ConditionalSelect(swap, c, s) ^ sinSign.AsSingle());
+		cos = Vector128.ConditionalSelect(tiny, Vector128<float>.One, Vector128.ConditionalSelect(swap, s, c) ^ cosSign.AsSingle());
+	}
+
+	// The reduced argument and the quadrant (in the low bits) of two lanes.
+	static (Vector128<double> Y, Vector128<long> N) Reduce(Vector128<double> x, Vector128<double> k, Vector128<double> large)
+	{
+		var yMid = x - k * Vector128.Create(Pio2);
+		// __rem_pio2f, with its correction by one when y is off by more than pi/4.
+		var fn = x * Vector128.Create(InvPio2) + Vector128.Create(ToInt) - Vector128.Create(ToInt);
+		var yLarge = x - fn * Vector128.Create(Pio2_1) - fn * Vector128.Create(Pio2_1t);
+		fn = fn + (Vector128.GreaterThan(yLarge, Vector128.Create(Pio4)) & Vector128<double>.One)
+			- (Vector128.LessThan(yLarge, Vector128.Create(-Pio4)) & Vector128<double>.One);
+		yLarge = x - fn * Vector128.Create(Pio2_1) - fn * Vector128.Create(Pio2_1t);
+		// Adding 1.5 * 2^52 puts the integer in the low mantissa bits.
+		var n = (Vector128.ConditionalSelect(large, fn, k) + Vector128.Create(ToInt)).AsInt64();
+		return (Vector128.ConditionalSelect(large, yLarge, yMid), n);
 	}
 
 	static float SinKernel(double x)
@@ -155,6 +221,23 @@ internal static class MuslMath
 		double w = z * z;
 		double r = K2 + z * K3;
 		return (float)(((1.0 + z * K0) + w * K1) + (w * z) * r);
+	}
+
+	static Vector128<double> SinKernel(Vector128<double> x)
+	{
+		var z = x * x;
+		var w = z * z;
+		var r = Vector128.Create(S3) + z * Vector128.Create(S4);
+		var s = z * x;
+		return (x + s * (Vector128.Create(S1) + z * Vector128.Create(S2))) + s * w * r;
+	}
+
+	static Vector128<double> CosKernel(Vector128<double> x)
+	{
+		var z = x * x;
+		var w = z * z;
+		var r = Vector128.Create(K2) + z * Vector128.Create(K3);
+		return ((Vector128<double>.One + z * Vector128.Create(K0)) + w * Vector128.Create(K1)) + (w * z) * r;
 	}
 
 	// Medium-size argument reduction; positions in a sentence never need the large-argument path.

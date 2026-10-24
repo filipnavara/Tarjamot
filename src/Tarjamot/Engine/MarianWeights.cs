@@ -20,6 +20,7 @@ internal sealed partial class MarianWeights
 
 	readonly Dictionary<QuantizedMatrix, float[]> preparedBiases = new(ReferenceEqualityComparer.Instance);
 	readonly Lock positionLock = new();
+	readonly float[] positionScales;
 	volatile float[][] positions = [];
 
 	public MarianWeights(MarianModel model, Int8Kernel kernel, bool useShortlist)
@@ -35,6 +36,7 @@ internal sealed partial class MarianWeights
 		OutputWeights = CreateOutputWeights(TargetEmbeddings, TargetEmbeddings.Alpha, useShortlist ? 0 : Int8Gemm.PanelWidth(kernel), Int8Gemm.UsesSaturationMetadata(kernel));
 		OutputWeightsShortlist = OutputWeights with { Alpha = model.UnnamedAlpha };
 		Dim = TargetEmbeddings.Cols;
+		positionScales = MarianMath.PositionScales(Dim);
 		var headsMatch = HeadsRegex().Match(model.Config);
 		Heads = headsMatch.Success ? int.Parse(headsMatch.Groups[1].Value) : 8;
 
@@ -97,7 +99,7 @@ internal sealed partial class MarianWeights
 				var grown = new float[Math.Max(position + 1, table.Length * 2)][];
 				table.CopyTo(grown, 0);
 				for (int p = table.Length; p < grown.Length; p++)
-					grown[p] = MarianMath.PositionEmbedding(p, Dim);
+					grown[p] = MarianMath.PositionEmbedding(p, positionScales);
 				positions = table = grown;
 			}
 			return table[position];

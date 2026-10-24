@@ -15,6 +15,7 @@ const string Usage = """
 	  TarjamotMicrobenchmark <bin directory> sizes <model>    weight, row-sum and saturation metadata sizes
 	  TarjamotMicrobenchmark <bin directory> values           attention values: one head versus two at a time
 	  TarjamotMicrobenchmark <bin directory> scores           attention scores: one query versus two at a time
+	  TarjamotMicrobenchmark <bin directory> positions        sinusoidal position embeddings of positions 0-511
 	  TarjamotMicrobenchmark <bin directory> cores            Environment.ProcessorCount and the physical cores
 
 	Loads Tarjamot.dll from the bin directory. A model is a
@@ -54,6 +55,9 @@ switch (args[1..])
 		break;
 	case ["scores"]:
 		Benchmarks.AttentionScores();
+		break;
+	case ["positions"]:
+		Benchmarks.Positions();
 		break;
 	case ["cores"]:
 		Benchmarks.Cores();
@@ -283,6 +287,21 @@ static class Benchmarks
 			(scale512 * r1).CopyTo(scoresB[(j + 16)..]);
 			(scale512 * r2).CopyTo(scoresB[(padded + j)..]);
 			(scale512 * r3).CopyTo(scoresB[(padded + j + 16)..]);
+		}
+	}
+
+	// The table a model holds after a sentence of 257-512 tokens (it doubles when it grows).
+	public static void Positions()
+	{
+		foreach (int dim in new[] { 384, 512 })
+		{
+			var scales = MarianMath.PositionScales(dim);
+			double nanoseconds = Time(() =>
+			{
+				for (int p = 0; p < 512; p++)
+					MarianMath.PositionEmbedding(p, scales);
+			});
+			Console.WriteLine($"dim {dim}: {nanoseconds / 512:F0} ns per position, {nanoseconds / 1000:F0} us for 512 (V128={Vector128.IsHardwareAccelerated})");
 		}
 	}
 

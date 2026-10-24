@@ -1,3 +1,4 @@
+using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -505,31 +506,67 @@ internal static class MarianMath
 	// The platform's libm: faster to build and smaller, but its last bits differ from Firefox.
 	static float Expf(float x) => MathF.Exp(x);
 
-	static float Sinf(float x) => MathF.Sin(x);
+	public static void SinCos(float x, out float sin, out float cos) => (sin, cos) = MathF.SinCos(x);
 
-	static float Cosf(float x) => MathF.Cos(x);
+	/// <summary>sin and cos of non-negative values; <paramref name="sin"/> may be <paramref name="x"/>.</summary>
+	public static void SinCos(ReadOnlySpan<float> x, Span<float> sin, Span<float> cos)
+	{
+		for (int i = 0; i < x.Length; i++)
+			SinCos(x[i], out sin[i], out cos[i]);
+	}
 #else
 	static float Expf(float x) => MuslMath.Expf(x);
 
-	static float Sinf(float x) => MuslMath.Sinf(x);
+	public static void SinCos(float x, out float sin, out float cos) => MuslMath.SinCosf(x, out sin, out cos);
 
-	static float Cosf(float x) => MuslMath.Cosf(x);
+	/// <summary>
+	/// sin and cos of non-negative values, with musl's bits; <paramref name="sin"/> may be
+	/// <paramref name="x"/>.
+	/// </summary>
+	public static void SinCos(ReadOnlySpan<float> x, Span<float> sin, Span<float> cos)
+	{
+		int i = 0;
+		if (Vector128.IsHardwareAccelerated)
+		{
+			ref float rx = ref MemoryMarshal.GetReference(x);
+			ref float rs = ref MemoryMarshal.GetReference(sin);
+			ref float rc = ref MemoryMarshal.GetReference(cos);
+			for (; i + 4 <= x.Length; i += 4)
+			{
+				MuslMath.SinCosf(Vector128.LoadUnsafe(ref rx, (nuint)i), out var s, out var c);
+				s.StoreUnsafe(ref rs, (nuint)i);
+				c.StoreUnsafe(ref rc, (nuint)i);
+			}
+		}
+		for (; i < x.Length; i++)
+			SinCos(x[i], out sin[i], out cos[i]);
+	}
 #endif
 
 	/// <summary>
-	/// Marian's sinusoidalPositionEmbeddings for one position, with musl's logf/expf/sinf/cosf.
+	/// The timescales of Marian's sinusoidalPositionEmbeddings for a model dimension, which do not
+	/// depend on the position: exp(i * -log(10000) / (dim / 2 - 1)) with musl's expf.
 	/// </summary>
-	public static float[] PositionEmbedding(int position, int dim)
+	public static float[] PositionScales(int dim)
 	{
-		var result = new float[dim];
 		float timescales = dim / 2;
 		float logIncrement = (float)Math.Log(10000.0) / (timescales - 1f);
-		for (int i = 0; i < (int)timescales; i++)
-		{
-			float v = position * Expf(i * -logIncrement);
-			result[i] = Sinf(v);
-			result[(int)timescales + i] = Cosf(v);
-		}
+		var scales = new float[(int)timescales];
+		for (int i = 0; i < scales.Length; i++)
+			scales[i] = Expf(i * -logIncrement);
+		return scales;
+	}
+
+	/// <summary>
+	/// Marian's sinusoidalPositionEmbeddings for one position, with musl's sinf/cosf: the sines of
+	/// position * scale, then the cosines.
+	/// </summary>
+	public static float[] PositionEmbedding(int position, ReadOnlySpan<float> scales)
+	{
+		var result = new float[2 * scales.Length];
+		var sin = result.AsSpan(0, scales.Length);
+		TensorPrimitives.Multiply(scales, position, sin);
+		SinCos(sin, sin, result.AsSpan(scales.Length));
 		return result;
 	}
 }
