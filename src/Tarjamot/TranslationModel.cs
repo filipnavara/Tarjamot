@@ -39,7 +39,6 @@ public sealed class TranslationModel
 		var engineOptions = new MarianEngineOptions(
 			kernel,
 			options.Parallelism,
-			options.UseShortlist,
 			options.MaxBatchTokens,
 			options.MaxIdleWorkers,
 			options.MaxIdleWorkerBytes,

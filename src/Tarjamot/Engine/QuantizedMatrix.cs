@@ -4,8 +4,8 @@ using System.Runtime.Intrinsics;
 
 namespace Tarjamot.Engine;
 
-/// <summary>Float32 parameter (biases, layer normalization), stored row-major.</summary>
-internal sealed record Tensor(float[] Data, int Rows, int Cols);
+/// <summary>Float32 parameter (biases, layer normalization).</summary>
+internal sealed record Tensor(float[] Data);
 
 /// <summary>
 /// Int8 matrix stored row-major as [out][in], or packed in panels of PanelWidth outputs in which

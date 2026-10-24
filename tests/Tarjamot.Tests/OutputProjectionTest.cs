@@ -32,7 +32,7 @@ public class OutputProjectionTest
 		var bias = Int8Gemm.PrepareBias(weights, weights.Alpha, Enumerable.Range(0, outputs).Select(_ => random.NextSingle() - 0.5f).ToArray());
 		float unquant = 1f / (weights.Alpha * weights.QuantMult);
 		var logits = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, weights, null, outputs, unquant, bias, logits, kernel, parallel);
+		Int8Gemm.Multiply(activations, rows, weights, null, unquant, bias, logits, kernel, parallel);
 		var scratch = new ArgMaxScratch();
 		foreach (int excluded in new[] { 0, outputs - 1, -1 })
 		{
@@ -72,7 +72,7 @@ public class OutputProjectionTest
 			case "partitionTies": bias[1023] = bias[1024] = 10f; break;
 		}
 		var logits = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, weights, null, outputs, 1f, bias, logits, kernel, parallel);
+		Int8Gemm.Multiply(activations, rows, weights, null, 1f, bias, logits, kernel, parallel);
 		var winners = Int8Gemm.MultiplyArgMax(activations, rows, weights, 1f, bias, excluded, new ArgMaxScratch(), kernel, parallel).ToArray();
 		Assert.That(winners, Is.All.EqualTo(expected));
 		Assert.That(winners, Is.EqualTo(ReferenceWinners(logits, rows, outputs, excluded)));

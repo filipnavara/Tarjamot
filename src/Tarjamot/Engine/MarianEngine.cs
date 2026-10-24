@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace Tarjamot.Engine;
 
-internal sealed record MarianEngineOptions(Int8Kernel Kernel, TranslationParallelism Parallelism, bool UseShortlist, int MaxBatchTokens,
+internal sealed record MarianEngineOptions(Int8Kernel Kernel, TranslationParallelism Parallelism, int MaxBatchTokens,
 	int MaxIdleWorkers, long MaxIdleWorkerBytes, long MaxIdleWorkerPoolBytes);
 
 /// <summary>
@@ -28,7 +28,7 @@ internal sealed class MarianEngine
 
 	public MarianEngine(MarianModel model, SentencePieceVocab sourceVocab, SentencePieceVocab targetVocab, Shortlist? shortlist, MarianEngineOptions options)
 	{
-		weights = new MarianWeights(model, options.Kernel, options.UseShortlist);
+		weights = new MarianWeights(model, options.Kernel, useShortlist: shortlist != null);
 		this.sourceVocab = sourceVocab;
 		this.targetVocab = targetVocab;
 		this.shortlist = shortlist;
@@ -91,7 +91,7 @@ internal sealed class MarianEngine
 
 		void Run(int[] batch, bool parallel)
 		{
-			var worker = workers.Take(parallel) ?? new MarianTranslator(weights, targetVocab, shortlist, new MarianTranslatorOptions(options.Kernel, parallel, options.UseShortlist));
+			var worker = workers.Take(parallel) ?? new MarianTranslator(weights, targetVocab, shortlist, new MarianTranslatorOptions(options.Kernel, parallel));
 			try
 			{
 				var batchAlignments = alignments is null ? null : batch.Select(i => alignments[i]).ToArray();

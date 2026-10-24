@@ -10,7 +10,7 @@ internal static partial class Int8Gemm
 	// Each int32 lane is an output column. Packing four bytes from each of four weight rows
 	// lets SDOT's indexed form share one activation quadruplet across those columns, with no
 	// horizontal reduction. Activation rows and output columns are handled in 4 x 4 tiles.
-	static void MultiplyPacked(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, int outputs, float unquant, float[] preparedBias, float[] y, bool parallel)
+	static void MultiplyPacked(QuantizedActivations a, int rows, QuantizedMatrix w, int outputs, float unquant, float[] preparedBias, float[] y, bool parallel)
 	{
 		int width = w.Cols;
 		int panels = (outputs + 3) / 4;
@@ -33,34 +33,29 @@ internal static partial class Int8Gemm
 			{
 				int blockEnd = Math.Min(rows, blockStart + rowBlock);
 				int j = start;
-				// Dense weights: four panels at a time, so 16 accumulators hide the SDOT latency.
-				if (weightRows == null)
-				{
-					for (; j + 16 <= end; j += 16)
-						ComputeWide(blockStart, blockEnd, j, scale);
-				}
+				// Four panels at a time, so 16 accumulators hide the SDOT latency.
+				for (; j + 16 <= end; j += 16)
+					ComputeWide(blockStart, blockEnd, j, scale);
 				for (; j < end; j += 4)
 				{
 					int count = Math.Min(4, end - j);
-					var columns = Vector128.Create(weightRows?[j] ?? j,
-						count > 1 ? weightRows?[j + 1] ?? j + 1 : -1,
-						count > 2 ? weightRows?[j + 2] ?? j + 2 : -1,
-						count > 3 ? weightRows?[j + 3] ?? j + 3 : -1);
+					var columns = Vector128.Create(j, count > 1 ? j + 1 : -1, count > 2 ? j + 2 : -1, count > 3 ? j + 3 : -1);
 					var shift = Vector128.Create(RowSum(columns[0]), RowSum(columns[1]), RowSum(columns[2]), RowSum(columns[3])) * Vector128.Create(127);
 					var bias = Vector128.Create(Bias(columns[0]), Bias(columns[1]), Bias(columns[2]), Bias(columns[3]));
 					bool correct = HasPairs(columns[0]) || HasPairs(columns[1]) || HasPairs(columns[2]) || HasPairs(columns[3]);
 					var tile = new PackedOutput(w, columns, shift, bias, scale, correct);
+					var panel = w.Data.AsSpan(j * width, 4 * width);
 					int r = blockStart;
 					for (; r + 4 <= blockEnd; r += 4)
 					{
-						DotPacked4(a.Values.AsSpan(r * width, 4 * width), w, columns, j, weightRows != null, out var s0, out var s1, out var s2, out var s3);
+						DotPacked4(a.Values.AsSpan(r * width, 4 * width), panel, out var s0, out var s1, out var s2, out var s3);
 						tile.Store(s0, a.Values.AsSpan(r * width, width), y.AsSpan(r * outputs + j, count));
 						tile.Store(s1, a.Values.AsSpan((r + 1) * width, width), y.AsSpan((r + 1) * outputs + j, count));
 						tile.Store(s2, a.Values.AsSpan((r + 2) * width, width), y.AsSpan((r + 2) * outputs + j, count));
 						tile.Store(s3, a.Values.AsSpan((r + 3) * width, width), y.AsSpan((r + 3) * outputs + j, count));
 					}
 					for (; r < blockEnd; r++)
-						tile.Store(DotPacked1(a.Values.AsSpan(r * width, width), w, columns, j, weightRows != null),
+						tile.Store(DotPacked1(a.Values.AsSpan(r * width, width), panel),
 							a.Values.AsSpan(r * width, width), y.AsSpan(r * outputs + j, count));
 				}
 			}
@@ -136,17 +131,6 @@ internal static partial class Int8Gemm
 		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	static Vector128<sbyte> LoadSelectedWeights(QuantizedMatrix w, Vector128<int> columns, int k)
-	{
-		return Vector128.Create(Quad(columns[0]), Quad(columns[1]), Quad(columns[2]), Quad(columns[3])).AsSByte();
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		int Quad(int row) => row >= 0
-			? MemoryMarshal.Read<int>(MemoryMarshal.AsBytes(w.Data.AsSpan((row & ~3) * w.Cols + k * 4 + (row & 3) * 4, 4)))
-			: 0;
-	}
-
 	static int PackedSaturationCorrection(ReadOnlySpan<sbyte> a, QuantizedMatrix w, int row)
 	{
 		if (row < 0)
@@ -162,68 +146,6 @@ internal static partial class Int8Gemm
 		return correction;
 	}
 
-	static void DotPacked4(ReadOnlySpan<sbyte> a, QuantizedMatrix w, Vector128<int> columns, int panel, bool selected,
-		out Vector128<int> s0, out Vector128<int> s1, out Vector128<int> s2, out Vector128<int> s3)
-	{
-		if (!selected)
-		{
-			DotPacked4(a, w.Data.AsSpan(panel * w.Cols, 4 * w.Cols), out s0, out s1, out s2, out s3);
-			return;
-		}
-		int width = w.Cols;
-		ref sbyte ra = ref MemoryMarshal.GetReference(a);
-		Vector128<int> acc0 = default, acc1 = default, acc2 = default, acc3 = default;
-		for (int k = 0; k < width; k += 16)
-		{
-			var x0 = Vector128.LoadUnsafe(ref ra, (nuint)k);
-			var x1 = Vector128.LoadUnsafe(ref ra, (nuint)(width + k));
-			var x2 = Vector128.LoadUnsafe(ref ra, (nuint)(2 * width + k));
-			var x3 = Vector128.LoadUnsafe(ref ra, (nuint)(3 * width + k));
-			var w0 = LoadSelectedWeights(w, columns, k);
-			acc0 = Dp.DotProductBySelectedQuadruplet(acc0, w0, x0, 0);
-			acc1 = Dp.DotProductBySelectedQuadruplet(acc1, w0, x1, 0);
-			acc2 = Dp.DotProductBySelectedQuadruplet(acc2, w0, x2, 0);
-			acc3 = Dp.DotProductBySelectedQuadruplet(acc3, w0, x3, 0);
-			var w1 = LoadSelectedWeights(w, columns, k + 4);
-			acc0 = Dp.DotProductBySelectedQuadruplet(acc0, w1, x0, 1);
-			acc1 = Dp.DotProductBySelectedQuadruplet(acc1, w1, x1, 1);
-			acc2 = Dp.DotProductBySelectedQuadruplet(acc2, w1, x2, 1);
-			acc3 = Dp.DotProductBySelectedQuadruplet(acc3, w1, x3, 1);
-			var w2 = LoadSelectedWeights(w, columns, k + 8);
-			acc0 = Dp.DotProductBySelectedQuadruplet(acc0, w2, x0, 2);
-			acc1 = Dp.DotProductBySelectedQuadruplet(acc1, w2, x1, 2);
-			acc2 = Dp.DotProductBySelectedQuadruplet(acc2, w2, x2, 2);
-			acc3 = Dp.DotProductBySelectedQuadruplet(acc3, w2, x3, 2);
-			var w3 = LoadSelectedWeights(w, columns, k + 12);
-			acc0 = Dp.DotProductBySelectedQuadruplet(acc0, w3, x0, 3);
-			acc1 = Dp.DotProductBySelectedQuadruplet(acc1, w3, x1, 3);
-			acc2 = Dp.DotProductBySelectedQuadruplet(acc2, w3, x2, 3);
-			acc3 = Dp.DotProductBySelectedQuadruplet(acc3, w3, x3, 3);
-		}
-		s0 = acc0;
-		s1 = acc1;
-		s2 = acc2;
-		s3 = acc3;
-	}
-
-	static Vector128<int> DotPacked1(ReadOnlySpan<sbyte> a, QuantizedMatrix w, Vector128<int> columns, int panel, bool selected)
-	{
-		if (!selected)
-			return DotPacked1(a, w.Data.AsSpan(panel * w.Cols, 4 * w.Cols));
-		ref sbyte ra = ref MemoryMarshal.GetReference(a);
-		Vector128<int> acc0 = default, acc1 = default, acc2 = default, acc3 = default;
-		for (int k = 0; k < w.Cols; k += 16)
-		{
-			var x = Vector128.LoadUnsafe(ref ra, (nuint)k);
-			acc0 = Dp.DotProductBySelectedQuadruplet(acc0, LoadSelectedWeights(w, columns, k), x, 0);
-			acc1 = Dp.DotProductBySelectedQuadruplet(acc1, LoadSelectedWeights(w, columns, k + 4), x, 1);
-			acc2 = Dp.DotProductBySelectedQuadruplet(acc2, LoadSelectedWeights(w, columns, k + 8), x, 2);
-			acc3 = Dp.DotProductBySelectedQuadruplet(acc3, LoadSelectedWeights(w, columns, k + 12), x, 3);
-		}
-		return (acc0 + acc1) + (acc2 + acc3);
-	}
-
-	// Dense panels are kept separate from gathers so there is no selection branch in the hot loop.
 	static void DotPacked4(ReadOnlySpan<sbyte> a, ReadOnlySpan<sbyte> weights,
 		out Vector128<int> s0, out Vector128<int> s1, out Vector128<int> s2, out Vector128<int> s3)
 	{

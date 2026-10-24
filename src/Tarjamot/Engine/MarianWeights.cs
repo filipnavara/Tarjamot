@@ -20,12 +20,10 @@ internal sealed partial class MarianWeights
 
 	readonly Dictionary<QuantizedMatrix, float[]> preparedBiases = new(ReferenceEqualityComparer.Instance);
 	readonly Lock positionLock = new();
-	readonly Int8Kernel kernel;
 	volatile float[][] positions = [];
 
 	public MarianWeights(MarianModel model, Int8Kernel kernel, bool useShortlist)
 	{
-		this.kernel = kernel;
 		bool shared = model.HasMatrix("Wemb");
 		SourceEmbeddings = model.Matrix(shared ? "Wemb" : "encoder_Wemb");
 		TargetEmbeddings = model.Matrix(shared ? "Wemb" : "decoder_Wemb");
@@ -45,8 +43,8 @@ internal sealed partial class MarianWeights
 			.ToArray();
 		DecoderLayers = Enumerable.Range(1, model.CountLayers("decoder"))
 			.Select(l => new DecoderLayer(
-				PrepareLayout(model.Matrix($"decoder_l{l}_rnn_W")),
-				PrepareLayout(model.Matrix($"decoder_l{l}_rnn_Wf")),
+				model.Matrix($"decoder_l{l}_rnn_W"),
+				model.Matrix($"decoder_l{l}_rnn_Wf"),
 				model[$"decoder_l{l}_rnn_bf"],
 				model[$"decoder_l{l}_rnn_ffn_ln_scale"],
 				model[$"decoder_l{l}_rnn_ffn_ln_bias"],
@@ -68,8 +66,8 @@ internal sealed partial class MarianWeights
 			Prepare(layer.Context);
 			Prepare(layer.FeedForward);
 		}
-		Prepare(OutputWeights, OutputBias);
-		Prepare(OutputWeightsShortlist, OutputBias);
+		// Only the output layer this engine uses: the full vocabulary or the shortlist.
+		Prepare(useShortlist ? OutputWeightsShortlist : OutputWeights, OutputBias);
 	}
 
 	public QuantizedMatrix SourceEmbeddings { get; }
@@ -126,18 +124,16 @@ internal sealed partial class MarianWeights
 			preparedBiases[weights] = Int8Gemm.PrepareBias(weights, weights.Alpha, bias?.Data);
 	}
 
-	QuantizedMatrix PrepareLayout(QuantizedMatrix matrix) => matrix.Pack(Int8Gemm.PanelWidth(kernel));
-
 	AttentionLayer LoadAttention(MarianModel model, string prefix) => new(
-		PrepareLayout(model.Matrix(prefix + "_Wq")), model[prefix + "_bq"],
-		PrepareLayout(model.Matrix(prefix + "_Wk")), model[prefix + "_bk"],
-		PrepareLayout(model.Matrix(prefix + "_Wv")), model[prefix + "_bv"],
-		PrepareLayout(model.Matrix(prefix + "_Wo")), model[prefix + "_bo"],
+		model.Matrix(prefix + "_Wq"), model[prefix + "_bq"],
+		model.Matrix(prefix + "_Wk"), model[prefix + "_bk"],
+		model.Matrix(prefix + "_Wv"), model[prefix + "_bv"],
+		model.Matrix(prefix + "_Wo"), model[prefix + "_bo"],
 		model[prefix + "_Wo_ln_scale"], model[prefix + "_Wo_ln_bias"]);
 
 	FeedForwardLayer LoadFeedForward(MarianModel model, string prefix) => new(
-		PrepareLayout(model.Matrix(prefix + "_W1")), model[prefix + "_b1"],
-		PrepareLayout(model.Matrix(prefix + "_W2")), model[prefix + "_b2"],
+		model.Matrix(prefix + "_W1"), model[prefix + "_b1"],
+		model.Matrix(prefix + "_W2"), model[prefix + "_b2"],
 		model[prefix + "_ffn_ln_scale"], model[prefix + "_ffn_ln_bias"]);
 
 	// Marian dequantizes the embeddings to float at load time and, for the output layer, quantizes it again

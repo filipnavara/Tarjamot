@@ -155,22 +155,21 @@ internal static partial class Int8Gemm
 	/// to unsigned (a + 127), pairs of products added with int16 saturation. The shift is undone by
 	/// the prepared bias (bias - 127 * rowSum / (alpha * quantMult), see <see cref="PrepareBias"/>).
 	/// </summary>
-	public static void Multiply(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, int outputs, float unquant, float[] preparedBias, float[] y, Int8Kernel kernel, bool parallel)
+	public static void Multiply(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, float unquant, float[] preparedBias, float[] y, Int8Kernel kernel, bool parallel)
 	{
 		RequireProductMetadata(w, kernel);
+		int outputs = weightRows?.Length ?? w.Rows;
 		// The IsSupported checks are JIT-time constants, so each platform keeps only its own branch.
 		if (w.IsPacked)
 		{
 			if (w.PanelWidth != PanelWidth(kernel))
 				throw new NotSupportedException("The matrix is packed for a different kernel.");
+			if (weightRows != null)
+				throw new NotSupportedException("Selected rows require row-major weights.");
 			if (Avx2.IsSupported && kernel == Int8Kernel.X86)
-			{
-				if (weightRows != null)
-					throw new NotSupportedException("The x86 kernel requires row-major weights for selected rows.");
 				MultiplyX86(a, rows, w, outputs, unquant, preparedBias, y, parallel);
-			}
 			else if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
-				MultiplyPacked(a, rows, w, weightRows, outputs, unquant, preparedBias, y, parallel);
+				MultiplyPacked(a, rows, w, outputs, unquant, preparedBias, y, parallel);
 			else
 				throw new PlatformNotSupportedException();
 			return;

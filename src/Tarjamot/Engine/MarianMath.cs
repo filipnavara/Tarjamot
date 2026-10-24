@@ -442,8 +442,10 @@ internal static class MarianMath
 		}
 	}
 
+	const float LayerNormEpsilon = 1e-6f;
+
 	/// <summary>Marian's LayerNormalizationImpl: sequential sums, then alpha * ((x - mean) / sigma) + beta.</summary>
-	public static void LayerNorm(Span<float> row, ReadOnlySpan<float> scale, ReadOnlySpan<float> bias, float epsilon)
+	public static void LayerNorm(Span<float> row, ReadOnlySpan<float> scale, ReadOnlySpan<float> bias)
 	{
 		float sum = 0f;
 		for (int i = 0; i < row.Length; i++)
@@ -455,7 +457,7 @@ internal static class MarianMath
 			float e = row[i] - mean;
 			sqSum += e * e;
 		}
-		float sigma = MathF.Sqrt(sqSum / row.Length + epsilon);
+		float sigma = MathF.Sqrt(sqSum / row.Length + LayerNormEpsilon);
 
 		ref float r = ref MemoryMarshal.GetReference(row);
 		ref float s = ref MemoryMarshal.GetReference(scale);

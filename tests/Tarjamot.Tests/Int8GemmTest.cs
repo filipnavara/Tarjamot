@@ -132,7 +132,7 @@ public class Int8GemmTest
 		float unquant = 1f / (alpha * matrix.QuantMult);
 		var prepared = Int8Gemm.PrepareBias(matrix, alpha, bias);
 		var y = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, matrix, null, outputs, unquant, prepared, y, kernel, parallel);
+		Int8Gemm.Multiply(activations, rows, matrix, null, unquant, prepared, y, kernel, parallel);
 
 		for (int r = 0; r < rows; r++)
 		{
@@ -171,35 +171,32 @@ public class Int8GemmTest
 		var serial = new float[rows * outputs];
 		var parallel = new float[rows * outputs];
 
-		Int8Gemm.Multiply(activations, rows, original, null, outputs, 1f / 4000f, prepared, serial, kernel, parallel: false);
-		Int8Gemm.Multiply(activations, rows, matrix, null, outputs, 1f / 4000f, prepared, parallel, kernel, parallel: true);
+		Int8Gemm.Multiply(activations, rows, original, null, 1f / 4000f, prepared, serial, kernel, parallel: false);
+		Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, parallel, kernel, parallel: true);
 
 		Assert.That(parallel.Select(BitConverter.SingleToInt32Bits), Is.EqualTo(serial.Select(BitConverter.SingleToInt32Bits)));
 	}
 
 	[Test]
-	public void SelectedRows([Values] bool packed, [Values] bool portable, [Values(1, 2, 4, 5)] int rows, [Values(1, 2, 3, 4, 7)] int selectedCount)
+	public void SelectedRows([Values] bool portable, [Values(1, 2, 4, 5)] int rows, [Values(1, 2, 3, 4, 7)] int selectedCount)
 	{
 		var kernel = Kernel(portable);
 		var random = new Random(1);
 		const int width = 64, outputs = 50;
 		var weights = new sbyte[outputs * width];
 		random.NextBytes((byte[])(Array)weights);
+		// Selected rows (the shortlist) use row-major weights.
 		var matrix = QuantizedMatrix.Create(weights, outputs, width, 40f, 0f);
-		var original = matrix;
-		// The x86 kernel keeps selected rows (the shortlist) row-major.
-		if (packed && kernel == Int8Kernel.ArmDotProduct)
-			matrix = matrix.Pack(Int8Gemm.PanelWidth(kernel));
 		var x = Enumerable.Range(0, rows * width).Select(_ => (float)random.NextDouble()).ToArray();
 		var activations = new QuantizedActivations();
 		Int8Gemm.Quantize(x, 100f, activations, kernel);
 		var prepared = Int8Gemm.PrepareBias(matrix, 100f, null);
 		var all = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, original, null, outputs, 1f / 4000f, prepared, all, kernel, parallel: false);
+		Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, all, kernel, parallel: false);
 		int[] selected = [49, 3, 17, 3, 0, 48, 7];
 		selected = selected[..selectedCount];
 		var some = new float[rows * selected.Length];
-		Int8Gemm.Multiply(activations, rows, matrix, selected, selected.Length, 1f / 4000f, prepared, some, kernel, parallel: false);
+		Int8Gemm.Multiply(activations, rows, matrix, selected, 1f / 4000f, prepared, some, kernel, parallel: false);
 
 		for (int r = 0; r < rows; r++)
 		{
