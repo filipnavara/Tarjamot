@@ -6,7 +6,7 @@
 
   <PropertyGroup>
     <IsPackable>true</IsPackable>
-    <PackageId>Tarjamot.Markup</PackageId>
+    <PackageId>Tarjamot.BergamotMarkup</PackageId>
     <Description>Firefox's HTML translation for Tarjamot: a port of Bergamot's HTML mode, which places the markup of HTML fragments along the model's alignments exactly as Firefox does. Use it with TranslationOptions.MarkupTranslator = BergamotMarkupTranslator.Instance.</Description>
     <PackageTags>translation;machine-translation;bergamot;marian;firefox;offline;nmt;html</PackageTags>
     <!-- Ported from bergamot-translator (MPL-2.0), whose HTML scanner is BSD-3-Clause; see

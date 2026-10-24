@@ -4,7 +4,7 @@
 
 using System.Text;
 
-namespace Tarjamot.Markup;
+namespace Tarjamot.BergamotMarkup;
 
 /// <summary>
 /// Translates HTML like Bergamot's HTML mode in Firefox's WASM build: the markup is parsed out

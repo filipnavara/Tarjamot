@@ -28,7 +28,7 @@ var german = await translator.TranslateAsync("cs", "de", czechText);
 ```
 
 HTML fragments keep their markup in place (see HTML mode; Firefox's exact output needs the
-`Tarjamot.Markup` package):
+`Tarjamot.BergamotMarkup` package):
 
 ```csharp
 var html = await translator.TranslateMarkupAsync("en", "cs", ["Click <a href=\"x\">here</a> to unsubscribe."]);
@@ -117,7 +117,7 @@ fragment. `TranslationOptions.MarkupTranslator` chooses how the markup is put ba
     the word they preceded.
   - Tags keep their attributes as written; the text is decoded and re-encoded (`&hellip;`
     becomes "…").
-- **`BergamotMarkupTranslator`** (package `Tarjamot.Markup`, MPL-2.0): a port of Bergamot's
+- **`BergamotMarkupTranslator`** (package `Tarjamot.BergamotMarkup`, MPL-2.0): a port of Bergamot's
   HTML mode, which gives Firefox's output byte for byte.
 
 ```csharp
@@ -129,7 +129,7 @@ using var translator = new LocalTranslator(store, options);
 Projection placed the markup better in 47 of the 59 that differ, most of them Japanese, where
 Bergamot leaves tags empty. Bergamot was better in 2. Both take the same time.
 
-**Bergamot's HTML mode.** The parts are in `src/Tarjamot.Markup`:
+**Bergamot's HTML mode.** The parts are in `src/Tarjamot.BergamotMarkup`:
 
 - **Parsing (`HtmlScanner`, `HtmlMarkup`):** a port of `xh_scanner` and `html.cpp`. The markup
   becomes plain text plus spans, each with its stack of open tags.
@@ -205,5 +205,5 @@ tags in the output. Sentences split by markup, such as "This email was sent to
 ## License
 
 `Tarjamot` is MIT, see [LICENSE](LICENSE). Parts follow or reimplement MIT, zlib and
-Apache-2.0 code. `Tarjamot.Markup` ports Bergamot's HTML mode and is MPL-2.0, with a
+Apache-2.0 code. `Tarjamot.BergamotMarkup` ports Bergamot's HTML mode and is MPL-2.0, with a
 BSD-3-Clause HTML scanner. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Tarjamot/Tarjamot.csproj" />
-    <Project Path="src/Tarjamot.Markup/Tarjamot.Markup.csproj" />
+    <Project Path="src/Tarjamot.BergamotMarkup/Tarjamot.BergamotMarkup.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tarjamot.Tests/Tarjamot.Tests.csproj" />

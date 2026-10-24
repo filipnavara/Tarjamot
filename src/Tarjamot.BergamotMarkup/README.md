@@ -1,4 +1,4 @@
-# Tarjamot.Markup
+# Tarjamot.BergamotMarkup
 
 Firefox's HTML translation for [Tarjamot](https://github.com/filipnavara/Tarjamot): a port of
 Bergamot's HTML mode, which puts the markup of HTML fragments back into their translations

@@ -46,7 +46,7 @@ public sealed record TranslationOptions
 
 	/// <summary>
 	/// How HTML fragments keep their markup: <see cref="ProjectedMarkupTranslator"/> (the default),
-	/// or BergamotMarkupTranslator from the Tarjamot.Markup package for Firefox's exact output.
+	/// or BergamotMarkupTranslator from the Tarjamot.BergamotMarkup package for Firefox's exact output.
 	/// </summary>
 	public MarkupTranslator MarkupTranslator { get; init; } = ProjectedMarkupTranslator.Instance;
 

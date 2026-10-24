@@ -6,8 +6,9 @@ Guidance for coding agents working in this repository.
 
 - `src/Tarjamot`: the library (NuGet package `Tarjamot`, MIT). `Engine/` is the Marian inference,
   `Projection/` the default HTML mode (`ProjectedMarkupTranslator`).
-- `src/Tarjamot.Markup`: Bergamot's HTML mode (NuGet package `Tarjamot.Markup`, MPL-2.0), which
-  matches Firefox. It uses the engine's internals, so it depends on exactly the same version.
+- `src/Tarjamot.BergamotMarkup`: Bergamot's HTML mode (NuGet package `Tarjamot.BergamotMarkup`,
+  MPL-2.0), which matches Firefox. It uses the engine's internals, so it depends on exactly the
+  same version.
 - `tests/Tarjamot.Tests`: NUnit tests. `ExternalServices` tests download models from Mozilla;
   set `TARJAMOT_TEST_MODELS` to keep them in a fixed directory.
 - `tools/Translate`: command-line translation. `tools/Benchmark`: benchmark harness,
@@ -21,7 +22,7 @@ dotnet build -c Release
 dotnet test -c Release --filter "TestCategory!=ExternalServices"
 dotnet test -c Release
 dotnet pack src/Tarjamot -c Release -o artifacts
-dotnet pack src/Tarjamot.Markup -c Release -o artifacts
+dotnet pack src/Tarjamot.BergamotMarkup -c Release -o artifacts
 ```
 
 Kernels depend on the CPU: run the tests with `DOTNET_EnableAVX512=0`, `DOTNET_EnableAVX2=0`,
@@ -33,9 +34,9 @@ Kernels depend on the CPU: run the tests with `DOTNET_EnableAVX512=0`, `DOTNET_E
   characters in source.
 - Outputs are meant to match Firefox's engine: keep the integer arithmetic and the order of
   floating-point sums when optimizing, and check translations byte for byte before and after.
-- Files ported from MPL-2.0 code keep their MPL-2.0 header, go in `src/Tarjamot.Markup` (never in
-  the MIT `src/Tarjamot`), and are listed in `THIRD-PARTY-NOTICES.md`. Never copy code from
-  Bergamot or from `src/Tarjamot.Markup` into `src/Tarjamot`.
+- Files ported from MPL-2.0 code keep their MPL-2.0 header, go in `src/Tarjamot.BergamotMarkup`
+  (never in the MIT `src/Tarjamot`), and are listed in `THIRD-PARTY-NOTICES.md`. Never copy code
+  from Bergamot or from `src/Tarjamot.BergamotMarkup` into `src/Tarjamot`.
 - Pure .NET: no native code.
 
 ## Releasing

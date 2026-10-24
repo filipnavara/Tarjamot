@@ -12,6 +12,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Tarjamot/Tarjamot.csproj" />
-    <ProjectReference Include="../../src/Tarjamot.Markup/Tarjamot.Markup.csproj" />
+    <ProjectReference Include="../../src/Tarjamot.BergamotMarkup/Tarjamot.BergamotMarkup.csproj" />
   </ItemGroup>
 </Project>

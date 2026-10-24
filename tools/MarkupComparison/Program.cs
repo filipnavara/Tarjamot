@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 using Tarjamot;
 
 // Compares the two ways of translating HTML on a corpus: BergamotMarkupTranslator (Firefox's
-// algorithm, Tarjamot.Markup) and ProjectedMarkupTranslator (detag and project, Tarjamot).
+// algorithm, Tarjamot.BergamotMarkup) and ProjectedMarkupTranslator (detag and project, Tarjamot).
 const string Usage = """
 	Usage:
 	  MarkupComparison <models directory> <corpus.json> <output directory>

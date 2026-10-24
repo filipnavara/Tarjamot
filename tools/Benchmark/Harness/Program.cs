@@ -17,7 +17,7 @@ const string Usage = """
 	minimum and maximum of the timed translations, the median process CPU time per translation,
 	process-wide allocated bytes per translation, live managed bytes after a full collection with
 	the translator idle, and the peak working set after the first translation and at the end.
-	HTML 1 places the markup as Firefox does (Tarjamot.Markup, built in before it was split off),
+	HTML 1 places the markup as Firefox does (Tarjamot.BergamotMarkup, built in before it was split off),
 	2 with ProjectedMarkupTranslator.
 	""";
 
@@ -58,7 +58,7 @@ static class Benchmark
 		var options = new TranslationOptions { UseShortlist = shortlist, Parallelism = parallelism };
 		if (args[6] == "2")
 			options = Markup.Projected(options);
-		else if (args[6] == "1" && File.Exists(Path.Combine(args[0], "Tarjamot.Markup.dll")))
+		else if (args[6] == "1" && File.Exists(Path.Combine(args[0], "Tarjamot.BergamotMarkup.dll")))
 			options = Markup.Bergamot(options);
 		using var translator = new LocalTranslator(store, options);
 		string[] fragments = [text];
@@ -102,7 +102,7 @@ static class Benchmark
 	}
 }
 
-// Separate methods, so that builds from before ProjectedMarkupTranslator and Tarjamot.Markup
+// Separate methods, so that builds from before ProjectedMarkupTranslator and Tarjamot.BergamotMarkup
 // existed resolve these types only when they are asked for.
 static class Markup
 {

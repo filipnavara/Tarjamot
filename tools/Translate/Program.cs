@@ -29,7 +29,7 @@ const string Usage = """
 	  --html                 The text is an HTML fragment; its markup is kept around the translated words.
 	  --html-json            The text is a JSON array of HTML fragments; prints a JSON array of translations.
 	  --projected            Place the markup with ProjectedMarkupTranslator instead of Firefox's
-	                         algorithm (BergamotMarkupTranslator from Tarjamot.Markup).
+	                         algorithm (BergamotMarkupTranslator from Tarjamot.BergamotMarkup).
 	  --benchmark <runs>     Translate repeatedly and report the speed.
 	  --mobile               Select the models published for Android.
 	""";

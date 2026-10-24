@@ -4,12 +4,12 @@ namespace Tarjamot;
 /// How <see cref="LocalTranslator.TranslateMarkupAsync"/> and <see cref="TranslationModel.TranslateMarkup"/>
 /// carry the markup of HTML fragments into their translations, set with
 /// <see cref="TranslationOptions.MarkupTranslator"/>. The default,
-/// <see cref="ProjectedMarkupTranslator"/>, is part of this package. The Tarjamot.Markup package
+/// <see cref="ProjectedMarkupTranslator"/>, is part of this package. The Tarjamot.BergamotMarkup package
 /// adds BergamotMarkupTranslator, which reproduces Firefox's output exactly.
 /// </summary>
 public abstract class MarkupTranslator
 {
-	// Implemented by this assembly and by Tarjamot.Markup only: they use the engine's internals.
+	// Implemented by this assembly and by Tarjamot.BergamotMarkup only: they use the engine's internals.
 	private protected MarkupTranslator()
 	{
 	}

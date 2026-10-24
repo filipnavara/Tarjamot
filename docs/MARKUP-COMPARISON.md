@@ -4,7 +4,7 @@ Tarjamot translates HTML two ways. Both translate the text without its markup an
 model's soft alignments (head 0 of the last decoder layer's context attention) to put the
 markup back. They differ in how.
 
-- **`BergamotMarkupTranslator`** (package `Tarjamot.Markup`, MPL-2.0 and BSD-3-Clause) ports
+- **`BergamotMarkupTranslator`** (package `Tarjamot.BergamotMarkup`, MPL-2.0 and BSD-3-Clause) ports
   Bergamot's HTML mode. Every subword of the translation takes the stack of open tags of the
   source subword it is aligned with, and tags are written wherever the stack changes. Its output
   is Firefox's output, byte for byte.
