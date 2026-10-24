@@ -41,7 +41,7 @@ internal sealed class MarianTranslator
 	readonly QuantizedActivations quantized = new();
 	readonly ArgMaxScratch outputWinners = new();
 	readonly DecoderContextBuffers contexts;
-	float[] bufferA = [], bufferB = [], bufferC = [], bufferD = [], bufferE = [], bufferHidden = [], bufferLogits = [], scores = [];
+	float[] bufferA = [], bufferB = [], bufferC = [], bufferD = [], bufferE = [], bufferHidden = [], bufferLogits = [], scores = [], cells = [];
 
 	public MarianTranslator(MarianWeights weights, SentencePieceVocab targetVocab, Shortlist? shortlist, MarianTranslatorOptions options)
 	{
@@ -65,7 +65,7 @@ internal sealed class MarianTranslator
 	// Array headers/alignment use a conservative 64-bit estimate; capacities are actual lengths.
 	internal long RetainedBytes => quantized.RetainedBytes + outputWinners.RetainedBytes + contexts.RetainedBytes + BufferBytes(bufferA) + BufferBytes(bufferB) +
 		BufferBytes(bufferC) + BufferBytes(bufferD) + BufferBytes(bufferE) + BufferBytes(bufferHidden) +
-		BufferBytes(bufferLogits) + BufferBytes(scores);
+		BufferBytes(bufferLogits) + BufferBytes(scores) + BufferBytes(cells);
 
 	static long BufferBytes(float[] buffer) => 24 + ((buffer.LongLength * sizeof(float) + 7) & ~7L);
 
@@ -110,7 +110,10 @@ internal sealed class MarianTranslator
 		}
 
 		var candidates = options.UseShortlist ? sources.Select(CreateCandidates).ToArray() : null;
-		var cells = new float[count * decoderLayers.Length * dim];
+		// SSRU cells start at zero for every batch (Marian's initial recurrent state), so the
+		// reused buffer is cleared.
+		var cells = Ensure(ref this.cells, count * decoderLayers.Length * dim);
+		Array.Clear(cells);
 		var previous = Enumerable.Repeat(-1, count).ToArray();
 		var finished = new bool[count];
 		var outputs = sources.Select(_ => new List<int>()).ToArray();
