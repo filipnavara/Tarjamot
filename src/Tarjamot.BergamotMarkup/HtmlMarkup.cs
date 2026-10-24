@@ -2,6 +2,7 @@
 // of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // Ported from bergamot-translator's src/translator/html.{h,cpp}.
 
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Tarjamot.BergamotMarkup;
@@ -31,6 +32,32 @@ internal sealed class HtmlMarkup
 		public List<byte> Attributes { get; } = [];
 		// Raw content copied as is, e.g. of <script> or a comment.
 		public byte[] Data { get; set; } = [];
+
+		byte[]? openTag, closeTag;
+
+		/// <summary>The markup that opens the tag, built once it is complete (after parsing).</summary>
+		public byte[] OpenTag => openTag ??= Type switch
+		{
+			NodeType.Element or NodeType.VoidElement => Concat("<"u8, Name, CollectionsMarshal.AsSpan(Attributes), ">"u8, Data),
+			NodeType.Comment => Concat("<!--"u8, Data, "-->"u8),
+			NodeType.ProcessingInstruction => Concat("<?"u8, Data, "?>"u8),
+			_ => [],
+		};
+
+		/// <summary>The markup that closes the tag.</summary>
+		public byte[] CloseTag => closeTag ??= Concat("</"u8, Name, ">"u8);
+
+		static byte[] Concat(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b, ReadOnlySpan<byte> c, ReadOnlySpan<byte> d = default, ReadOnlySpan<byte> e = default)
+		{
+			var result = new byte[a.Length + b.Length + c.Length + d.Length + e.Length];
+			var rest = result.AsSpan();
+			a.CopyTo(rest);
+			b.CopyTo(rest = rest[a.Length..]);
+			c.CopyTo(rest = rest[b.Length..]);
+			d.CopyTo(rest = rest[c.Length..]);
+			e.CopyTo(rest[d.Length..]);
+			return result;
+		}
 	}
 
 	/// <summary>A span of plain text and the tags applied to it; empty for void elements and the like.</summary>
@@ -66,6 +93,9 @@ internal sealed class HtmlMarkup
 		var source = new List<byte>();
 		Tag? tag = null;
 		var stack = new List<Tag>();
+		// The copies of the stack given to spans, by depth: spans share one while the tags below
+		// that depth do not change, instead of copying the stack for every span.
+		var snapshots = new List<Tag[]?>();
 		bool addSentenceBreak = false;
 		bool addWordBreak = false;
 
@@ -92,11 +122,11 @@ internal sealed class HtmlMarkup
 						if (source.Count >= 2 && !(source[^2] == (byte)'\n' && source[^1] == (byte)'\n'))
 						{
 							// An empty span positioned before the "\n\n", so it can be removed again.
-							stack.Add(new Tag(NodeType.Whitespace, []));
-							spans.Add(new Span(source.Count, source.Count, [.. stack]));
+							Push(new Tag(NodeType.Whitespace, []));
+							spans.Add(new Span(source.Count, source.Count, Snapshot()));
 							source.Add((byte)'\n');
 							source.Add((byte)'\n');
-							stack.RemoveAt(stack.Count - 1);
+							Pop();
 						}
 						addSentenceBreak = false;
 					}
@@ -111,7 +141,7 @@ internal sealed class HtmlMarkup
 
 					int begin = source.Count;
 					AppendText(source, scanner.Value);
-					spans.Add(new Span(begin, source.Count, [.. stack]));
+					spans.Add(new Span(begin, source.Count, Snapshot()));
 					break;
 				}
 
@@ -119,21 +149,21 @@ internal sealed class HtmlMarkup
 				{
 					var name = Lower(scanner.Tag);
 					tag = new Tag(VoidTags.Contains(name) ? NodeType.VoidElement : NodeType.Element, scanner.Tag.ToArray());
-					stack.Add(tag);
+					Push(tag);
 
 					// Void elements apply to no text: an empty span, and off the stack again.
 					if (tag.Type == NodeType.VoidElement)
 					{
-						spans.Add(new Span(source.Count, source.Count, [.. stack]));
-						stack.RemoveAt(stack.Count - 1);
+						spans.Add(new Span(source.Count, source.Count, Snapshot()));
+						Pop();
 					}
 
 					// Ignored elements move with the content like void elements.
 					if (IgnoredTags.Contains(name))
 					{
 						ConsumeIgnoredTag(scanner, tag, name);
-						spans.Add(new Span(source.Count, source.Count, [.. stack]));
-						stack.RemoveAt(stack.Count - 1);
+						spans.Add(new Span(source.Count, source.Count, Snapshot()));
+						Pop();
 					}
 
 					if (!InlineTags.Contains(name))
@@ -156,8 +186,8 @@ internal sealed class HtmlMarkup
 
 					// An element closed right away ("<u></u>") is recorded with an empty span.
 					if (spans.Count == 0 || !spans[^1].Tags.Contains(stack[^1]))
-						spans.Add(new Span(source.Count, source.Count, [.. stack]));
-					stack.RemoveAt(stack.Count - 1);
+						spans.Add(new Span(source.Count, source.Count, Snapshot()));
+					Pop();
 
 					if (!InlineTags.Contains(name))
 						addSentenceBreak = true;
@@ -172,16 +202,16 @@ internal sealed class HtmlMarkup
 
 				case HtmlScanner.TokenType.CommentStart:
 					tag = new Tag(NodeType.Comment, []);
-					stack.Add(tag);
-					spans.Add(new Span(source.Count, source.Count, [.. stack]));
-					stack.RemoveAt(stack.Count - 1);
+					Push(tag);
+					spans.Add(new Span(source.Count, source.Count, Snapshot()));
+					Pop();
 					break;
 
 				case HtmlScanner.TokenType.ProcessingInstructionStart:
 					tag = new Tag(NodeType.ProcessingInstruction, []);
-					stack.Add(tag);
-					spans.Add(new Span(source.Count, source.Count, [.. stack]));
-					stack.RemoveAt(stack.Count - 1);
+					Push(tag);
+					spans.Add(new Span(source.Count, source.Count, Snapshot()));
+					Pop();
 					break;
 
 				case HtmlScanner.TokenType.CommentEnd:
@@ -202,44 +232,69 @@ internal sealed class HtmlMarkup
 			throw new FormatException("Not all tags were closed.");
 
 		// A trailing empty span with all tags closed.
-		spans.Add(new Span(source.Count, source.Count, [.. stack]));
+		spans.Add(new Span(source.Count, source.Count, Snapshot()));
 		plainText = source.ToArray();
+
+		// The snapshots of the depths up to the stack's, which stay valid.
+		void Push(Tag pushed)
+		{
+			stack.Add(pushed);
+			KeepSnapshots(stack.Count);
+		}
+
+		void Pop()
+		{
+			stack.RemoveAt(stack.Count - 1);
+			KeepSnapshots(stack.Count + 1);
+		}
+
+		void KeepSnapshots(int count)
+		{
+			if (snapshots.Count > count)
+				snapshots.RemoveRange(count, snapshots.Count - count);
+		}
+
+		Tag[] Snapshot()
+		{
+			while (snapshots.Count <= stack.Count)
+				snapshots.Add(null);
+			return snapshots[stack.Count] ??= [.. stack];
+		}
 	}
 
-	/// <summary>Writes the markup into <c>response.Target</c> and returns the resulting text.</summary>
-	public byte[] Restore(MarkupResponse response)
+	/// <summary>Writes the markup into <c>response.Target</c> and returns the resulting HTML.</summary>
+	public string Restore(MarkupResponse response)
 	{
-		var sourceTokenSpans = new List<int>();
-		RestoreSource(response.Source, sourceTokenSpans);
+		var sourceTokenSpans = RestoreSource(response.Source);
 		var alignments = HardAlignments(response, sourceTokenSpans);
 		var targetTokenSpans = CopyTagStack(response, alignments, sourceTokenSpans);
 		var targetTokenTags = targetTokenSpans.Select(span => spans[span].Tags).ToList();
-		return RestoreTarget(response.Target, targetTokenSpans, targetTokenTags).Text;
+		return Encoding.UTF8.GetString(RestoreTarget(response.Target, targetTokenSpans, targetTokenTags).Text);
 	}
 
-	// Assigns each source token (and gap) the span it falls in: the last span that overlaps it.
-	void RestoreSource(AnnotatedText source, List<int> sourceTokenSpans)
+	// Assigns each source token (and gap), in the order of AnnotatedText.Apply, the span it falls
+	// in: the last span that overlaps it. Bergamot also writes the markup back into the source
+	// text, which is not needed here.
+	List<int> RestoreSource(AnnotatedText source)
 	{
+		var sourceTokenSpans = new List<int>();
 		int span = 0;
-		int previous = 0; // the first span is always empty and has no tags
-		source.Apply((range, token, last) =>
+		for (int sentence = 0; sentence < source.NumSentences; sentence++)
 		{
-			var formatter = new TokenFormatter(token);
-			while (true)
-			{
-				formatter.Append(spans[previous].Tags, spans[span].Tags);
-				previous = span;
-				if (span + 1 != spans.Count && (spans[span + 1].Begin < range.End || last))
-				{
-					span++;
-					continue;
-				}
-				break;
-			}
+			Assign(source.GapRange(sentence).End, last: false);
+			for (int word = 0; word < source.NumWords(sentence); word++)
+				Assign(source.WordRange(sentence, word).End, last: false);
+		}
+		Assign(source.GapRange(source.NumSentences).End, last: true);
+		return sourceTokenSpans;
+
+		void Assign(int end, bool last)
+		{
+			while (span + 1 != spans.Count && (spans[span + 1].Begin < end || last))
+				span++;
 			// Only the tags of the last span, not of the ones in between (as in Bergamot).
-			sourceTokenSpans.Add(previous);
-			return formatter.Html;
-		});
+			sourceTokenSpans.Add(span);
+		}
 	}
 
 	AnnotatedText RestoreTarget(AnnotatedText target, List<int> targetTokenSpans, List<Tag[]> targetTokenTags)
@@ -249,9 +304,9 @@ internal sealed class HtmlMarkup
 		int index = 0;
 		var assigned = targetTokenSpans.ToHashSet();
 
-		var result = target.Apply((range, token, last) =>
+		var result = target.Apply((range, token, last, output) =>
 		{
-			var formatter = new TokenFormatter(token);
+			var formatter = new TokenFormatter(output, token);
 
 			// Catch up with the span of this token, writing out empty spans (void elements and
 			// the like) and spans that would otherwise be lost because no token aligned with them.
@@ -270,7 +325,6 @@ internal sealed class HtmlMarkup
 
 			previousTags = targetTokenTags[index];
 			index++;
-			return formatter.Html;
 		});
 		return result;
 	}
@@ -357,7 +411,7 @@ internal sealed class HtmlMarkup
 	static bool IsContinuation(byte? previous, ReadOnlySpan<byte> current) =>
 		previous is { } last && !current.IsEmpty && !ContinuationDelimiters.Contains(current[0]) && !ContinuationDelimiters.Contains(last);
 
-	static bool IsContinuation(byte[] previous, byte[] current) =>
+	static bool IsContinuation(ReadOnlySpan<byte> previous, ReadOnlySpan<byte> current) =>
 		IsContinuation(previous.Length > 0 ? previous[^1] : null, current);
 
 	// Whether stack b is stack a with possibly more tags nested inside.
@@ -456,25 +510,25 @@ internal sealed class HtmlMarkup
 	}
 
 	/// <summary>
-	/// Builds the HTML of one token: the token with &amp;, &lt; and &gt; encoded, and the tags that
-	/// get from one stack to the next. Closing tags go before the token's leading whitespace,
-	/// opening tags after it (Bergamot's TokenFormatter).
+	/// Writes the HTML of one token at the end of a buffer: the token with &amp;, &lt; and &gt;
+	/// encoded, and the tags that get from one stack to the next. Closing tags go before the
+	/// token's leading whitespace, opening tags after it (Bergamot's TokenFormatter).
 	/// </summary>
-	sealed class TokenFormatter
+	struct TokenFormatter
 	{
-		static readonly byte[] TagStart = "<"u8.ToArray(), CloseStart = "</"u8.ToArray(), TagEnd = ">"u8.ToArray();
-		static readonly byte[] CommentStart = "<!--"u8.ToArray(), CommentEnd = "-->"u8.ToArray();
-		static readonly byte[] InstructionStart = "<?"u8.ToArray(), InstructionEnd = "?>"u8.ToArray();
-
-		readonly List<byte> html = [];
+		readonly List<byte> html;
+		// Where the token starts in the buffer; the offsets below are relative to it.
+		readonly int start;
 		int offset;
 		int whitespaceOffset;
 		int whitespaceSize;
 		// Close tags go left of the whitespace until the first open tag has been written.
 		bool closeLeft = true;
 
-		public TokenFormatter(byte[] token)
+		public TokenFormatter(List<byte> html, ReadOnlySpan<byte> token)
 		{
+			this.html = html;
+			start = html.Count;
 			while (whitespaceSize < token.Length && IsSpace(token[whitespaceSize]))
 				whitespaceSize++;
 			foreach (var b in token)
@@ -497,8 +551,6 @@ internal sealed class HtmlMarkup
 			}
 		}
 
-		public byte[] Html => html.ToArray();
-
 		public void Append(Tag[] previous, Tag[] current)
 		{
 			int i = 0;
@@ -511,8 +563,8 @@ internal sealed class HtmlMarkup
 				var tag = previous[j];
 				if (tag.Type != NodeType.Element)
 					continue;
-				var closeTag = Concat(CloseStart, tag.Name, TagEnd);
-				html.InsertRange(offset + (closeLeft ? 0 : whitespaceSize), closeTag);
+				var closeTag = tag.CloseTag;
+				html.InsertRange(start + offset + (closeLeft ? 0 : whitespaceSize), closeTag);
 				offset += closeTag.Length;
 				if (closeLeft)
 					whitespaceOffset += closeTag.Length;
@@ -521,33 +573,18 @@ internal sealed class HtmlMarkup
 			for (int j = i; j < current.Length; j++)
 			{
 				var tag = current[j];
-				byte[] openTag;
-				switch (tag.Type)
+				if (tag.Type == NodeType.Whitespace)
 				{
-					case NodeType.Element:
-					case NodeType.VoidElement:
-						openTag = Concat(TagStart, tag.Name, tag.Attributes.ToArray(), TagEnd, tag.Data);
-						break;
-					case NodeType.Comment:
-						openTag = Concat(CommentStart, tag.Data, CommentEnd);
-						break;
-					case NodeType.ProcessingInstruction:
-						openTag = Concat(InstructionStart, tag.Data, InstructionEnd);
-						break;
-					default:
+					// A sentence break: try to eat its "\n\n" from the token's whitespace.
+					int position = IndexOf(html, "\n\n"u8, start + whitespaceOffset);
+					if (position >= 0 && position < start + whitespaceOffset + whitespaceSize)
 					{
-						// A sentence break: try to eat its "\n\n" from the token's whitespace.
-						openTag = [];
-						int position = IndexOf(html, "\n\n"u8, whitespaceOffset);
-						if (position >= 0 && position < whitespaceOffset + whitespaceSize)
-						{
-							html.RemoveRange(position, 2);
-							whitespaceSize -= 2;
-						}
-						break;
+						html.RemoveRange(position, 2);
+						whitespaceSize -= 2;
 					}
 				}
-				html.InsertRange(offset + whitespaceSize, openTag);
+				var openTag = tag.OpenTag;
+				html.InsertRange(start + offset + whitespaceSize, openTag);
 				offset += openTag.Length;
 				closeLeft = closeLeft && openTag.Length == 0;
 			}
@@ -558,23 +595,8 @@ internal sealed class HtmlMarkup
 
 		static int IndexOf(List<byte> bytes, ReadOnlySpan<byte> value, int start)
 		{
-			for (int i = start; i + value.Length <= bytes.Count; i++)
-			{
-				bool match = true;
-				for (int j = 0; j < value.Length && match; j++)
-					match = bytes[i + j] == value[j];
-				if (match)
-					return i;
-			}
-			return -1;
-		}
-
-		static byte[] Concat(params ReadOnlySpan<byte[]> parts)
-		{
-			var result = new List<byte>();
-			foreach (var part in parts)
-				result.AddRange(part);
-			return result.ToArray();
+			int index = CollectionsMarshal.AsSpan(bytes)[start..].IndexOf(value);
+			return index < 0 ? -1 : start + index;
 		}
 	}
 }

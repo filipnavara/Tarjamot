@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using Tarjamot.Engine;
 
@@ -32,8 +33,9 @@ internal static partial class MarkupProjection
 	{
 		public required string Open { get; set; }
 		public string? Close { get; set; }
-		// The whole element as written, for one that becomes an anchor.
-		public string Source { get; init; } = "";
+		// The range of the whole element in the fragment, for one that becomes an anchor.
+		public int MarkupStart { get; init; }
+		public int MarkupEnd { get; init; }
 		public int Parent { get; init; }
 		public int SourceStart { get; init; }
 		public int SourceEnd { get; set; }
@@ -44,6 +46,8 @@ internal static partial class MarkupProjection
 
 	sealed class Run
 	{
+		// The fragment the run is part of.
+		public required string Html { get; init; }
 		public required string Text { get; init; }
 		public required List<Item> Items { get; init; }
 		public List<Sentence> Sentences { get; } = [];
@@ -65,6 +69,9 @@ internal static partial class MarkupProjection
 		// Per target token, the probability of each source token and EOS.
 		public float[][] Alignment { get; set; } = [];
 		public int TargetOffset { get; set; }
+		// Where the sentence's tokens start in the token lists of the run (Project).
+		public int SourceBase { get; set; }
+		public int TargetBase { get; set; }
 	}
 
 	public static string[] Translate(IReadOnlyList<string> fragments, IReadOnlyList<TranslationModel> models, CancellationToken cancellationToken)
@@ -133,7 +140,7 @@ internal static partial class MarkupProjection
 		var plain = text.ToString();
 		if (!plain.Any(char.IsLetterOrDigit))
 			return null;
-		return new Run { Text = plain, Items = items };
+		return new Run { Html = html, Text = plain, Items = items };
 
 		void Add(HtmlNode node, int parent)
 		{
@@ -149,7 +156,8 @@ internal static partial class MarkupProjection
 					{
 						Open = html[element.Start..element.StartTagEnd],
 						Close = html[element.EndTagStart..element.End],
-						Source = html[element.Start..element.End],
+						MarkupStart = element.Start,
+						MarkupEnd = element.End,
 						Parent = parent,
 						SourceStart = text.Length,
 					});
@@ -176,12 +184,15 @@ internal static partial class MarkupProjection
 				var (ids, tokens) = Encode(engine.SourceVocab, run.Text[range]);
 				if (ids.Count == 0)
 					continue;
+				foreach (ref var token in CollectionsMarshal.AsSpan(tokens))
+					token = (token.Begin + offset, token.End + offset);
+				ids.Add(engine.SourceVocab.EosId);
 				var sentence = new Sentence
 				{
 					Run = run,
 					Range = range,
-					SourceTokens = tokens.Select(token => (token.Begin + offset, token.End + offset)).ToList(),
-					Ids = [.. ids, engine.SourceVocab.EosId],
+					SourceTokens = tokens,
+					Ids = ids,
 				};
 				run.Sentences.Add(sentence);
 				sentences.Add(sentence);
@@ -213,7 +224,8 @@ internal static partial class MarkupProjection
 			{
 				var (ids, tokens) = Encode(engine.SourceVocab, sentences[i].Target);
 				pivotTokens[i] = tokens;
-				sources.Add([.. ids, engine.SourceVocab.EosId]);
+				ids.Add(engine.SourceVocab.EosId);
+				sources.Add(ids);
 			}
 			outputs = Translate(engine, sources, out alignments, cancellationToken);
 			for (int i = 0; i < sentences.Count; i++)
@@ -273,18 +285,26 @@ internal static partial class MarkupProjection
 
 	static (List<int> Ids, List<(int Begin, int End)> Tokens) Encode(SentencePieceVocab vocab, string text)
 	{
-		var byteRanges = new List<(int Begin, int End)>();
-		var ids = vocab.Encode(Encoding.UTF8.GetBytes(text), byteRanges);
-		var chars = CharIndexOfBytes(text);
-		return (ids, byteRanges.Select(range => (chars[range.Begin], chars[range.End])).ToList());
+		var ranges = new List<(int Begin, int End)>();
+		var ids = vocab.Encode(Encoding.UTF8.GetBytes(text), ranges);
+		ToCharRanges(text, ranges);
+		return (ids, ranges);
 	}
 
 	static (string Text, List<(int Begin, int End)> Tokens) Decode(SentencePieceVocab vocab, List<int> ids)
 	{
-		var byteRanges = new List<(int Begin, int End)>();
-		var text = Encoding.UTF8.GetString(vocab.DecodeWithRanges(ids, byteRanges));
+		var ranges = new List<(int Begin, int End)>();
+		var text = Encoding.UTF8.GetString(vocab.DecodeWithRanges(ids, ranges));
+		ToCharRanges(text, ranges);
+		return (text, ranges);
+	}
+
+	// Converts UTF-8 byte ranges of the text into UTF-16 ranges, in place.
+	static void ToCharRanges(string text, List<(int Begin, int End)> ranges)
+	{
 		var chars = CharIndexOfBytes(text);
-		return (text, byteRanges.Select(range => (chars[range.Begin], chars[range.End])).ToList());
+		foreach (ref var range in CollectionsMarshal.AsSpan(ranges))
+			range = (chars[range.Begin], chars[range.End]);
 	}
 
 	// The UTF-16 index of the character each UTF-8 byte of the text belongs to, and the length at the end.
@@ -338,6 +358,8 @@ internal static partial class MarkupProjection
 		foreach (var sentence in run.Sentences)
 		{
 			int sourceBase = sourceTokens.Count;
+			sentence.SourceBase = sourceBase;
+			sentence.TargetBase = targetTokens.Count;
 			for (int s = 0; s < sentence.SourceTokens.Count; s++)
 			{
 				var (begin, end) = Trim(run.Text, sentence.SourceTokens[s]);
@@ -351,23 +373,43 @@ internal static partial class MarkupProjection
 			}
 		}
 
-		var copies = new List<Item>();
+		// Buffers of ProjectElement, shared by the elements of the run.
+		var mass = new float[targetTokens.Count];
+		var aligned = new List<int>();
+		var groups = new List<(int First, int Last, float Mass)>();
+
+		int count = run.Items.Count;
+		var hasChildren = new bool[count];
 		foreach (var item in run.Items)
 		{
+			if (item.Parent >= 0)
+				hasChildren[item.Parent] = true;
+		}
+
+		var copies = new List<Item>();
+		for (int i = 0; i < count; i++)
+		{
+			var item = run.Items[i];
 			if (item.IsAnchor)
 				continue;
-			var covered = new HashSet<int>();
+			// The source tokens with text that the element covers, which are consecutive: the
+			// covered ones between the first and the last.
+			int first = -1, last = -1;
 			for (int s = 0; s < sourceTokens.Count; s++)
 			{
-				if (sourceTokens[s].End > sourceTokens[s].Begin && sourceTokens[s].Begin < item.SourceEnd && sourceTokens[s].End > item.SourceStart)
-					covered.Add(s);
+				if (Covers(item, s))
+				{
+					if (first < 0)
+						first = s;
+					last = s;
+				}
 			}
-			var spans = ProjectElement(item, covered);
+			var spans = ProjectElement(item, hasChildren[i], first, last);
 			if (spans.Count == 0)
 			{
 				// Nothing to project (whitespace, images): the element is copied as written, with
 				// its children, as an anchor.
-				item.Open = item.Source;
+				item.Open = run.Html[item.MarkupStart..item.MarkupEnd];
 				item.Close = null;
 				continue;
 			}
@@ -407,33 +449,49 @@ internal static partial class MarkupProjection
 				item.Open += " ";
 		}
 
+		// Whether the source token has text and overlaps the element.
+		bool Covers(Item item, int s) =>
+			sourceTokens[s].End > sourceTokens[s].Begin && sourceTokens[s].Begin < item.SourceEnd && sourceTokens[s].End > item.SourceStart;
+
 		// The target spans of an element: each contiguous group of target tokens aligned with it
 		// whose mass is at least half of the best group's, the best first. Only elements without
 		// children and without an id are copied over several groups (a verb and its separated
-		// particle, a word and its translation split around another word).
-		List<(int Start, int End)> ProjectElement(Item item, HashSet<int> covered)
+		// particle, a word and its translation split around another word). The element covers
+		// the source tokens first to last that it overlaps (Covers).
+		List<(int Start, int End)> ProjectElement(Item item, bool hasChildren, int first, int last)
 		{
-			if (covered.Count == 0)
+			if (first < 0)
 				return [];
 
-			// Mass of the element in each target token of its sentences.
-			var mass = new float[targetTokens.Count];
-			for (int t = 0; t < targetTokens.Count; t++)
+			// Mass of the element in each target token of its sentences; the other target tokens
+			// have none, and none is aligned with it.
+			int from = sourceTokens[first].Sentence.TargetBase;
+			var lastSentence = sourceTokens[last].Sentence;
+			int to = lastSentence.TargetBase + lastSentence.TargetTokens.Count;
+			for (int t = from; t < to; t++)
 			{
 				var token = targetTokens[t];
-				foreach (int s in covered)
+				var sentence = token.Sentence;
+				mass[t] = 0;
+				int end = Math.Min(last + 1, sentence.SourceBase + sentence.SourceTokens.Count);
+				for (int s = Math.Max(first, sentence.SourceBase); s < end; s++)
 				{
-					if (sourceTokens[s].Sentence == token.Sentence)
-						mass[t] += token.Sentence.Alignment[token.Index][sourceTokens[s].Index];
+					if (Covers(item, s))
+						mass[t] += sentence.Alignment[token.Index][sourceTokens[s].Index];
 				}
 			}
 
-			var aligned = Enumerable.Range(0, targetTokens.Count).Where(t => covered.Contains(hard[t]) && targetTokens[t].End > targetTokens[t].Begin).ToList();
+			aligned.Clear();
+			for (int t = from; t < to; t++)
+			{
+				if (hard[t] >= first && hard[t] <= last && Covers(item, hard[t]) && targetTokens[t].End > targetTokens[t].Begin)
+					aligned.Add(t);
+			}
 			if (aligned.Count == 0)
 			{
 				// No target token is aligned with the element: the one it contributes most to.
 				int best = -1;
-				for (int t = 0; t < targetTokens.Count; t++)
+				for (int t = from; t < to; t++)
 				{
 					if (targetTokens[t].End > targetTokens[t].Begin && mass[t] > 0 && (best < 0 || mass[t] > mass[best]))
 						best = t;
@@ -443,17 +501,21 @@ internal static partial class MarkupProjection
 				aligned.Add(best);
 			}
 
-			var groups = new List<(int First, int Last, float Mass)>();
+			groups.Clear();
 			for (int start = 0; start < aligned.Count;)
 			{
 				int end = start + 1;
 				while (end < aligned.Count && aligned[end] == aligned[end - 1] + 1)
 					end++;
-				groups.Add((aligned[start], aligned[end - 1], aligned[start..end].Sum(t => mass[t])));
+				// Summed in double and rounded to float, as Enumerable.Sum does.
+				double sum = 0;
+				for (int k = start; k < end; k++)
+					sum += mass[aligned[k]];
+				groups.Add((aligned[start], aligned[end - 1], (float)sum));
 				start = end;
 			}
 			groups.Sort((a, b) => b.Mass.CompareTo(a.Mass));
-			bool copy = !run.Items.Any(child => child.Parent == run.Items.IndexOf(item)) && !IdAttribute().IsMatch(item.Open);
+			bool copy = !hasChildren && !IdAttribute().IsMatch(item.Open);
 			var selected = copy ? groups.Where(group => group.Mass >= groups[0].Mass / 2).ToList() : [groups[0]];
 
 			var spans = new List<(int Start, int End)>();
@@ -501,15 +563,34 @@ internal static partial class MarkupProjection
 		{
 			foreach (var sentence in run.Sentences)
 			{
-				var tokens = sourceTokens.Where(token => token.Sentence == sentence && token.End > token.Begin).ToList();
-				if (tokens.Count == 0 || position < sentence.Range.Start.Value || position > sentence.Range.End.Value)
+				// The source tokens of the sentence with text.
+				int from = sentence.SourceBase, to = from + sentence.SourceTokens.Count;
+				int first = -1, last = -1;
+				for (int s = from; s < to; s++)
+				{
+					if (sourceTokens[s].End > sourceTokens[s].Begin)
+					{
+						if (first < 0)
+							first = s;
+						last = s;
+					}
+				}
+				if (first < 0 || position < sentence.Range.Start.Value || position > sentence.Range.End.Value)
 					continue;
-				if (position <= tokens[0].Begin)
+				if (position <= sourceTokens[first].Begin)
 					return sentence.TargetOffset;
-				if (position >= tokens[^1].End)
+				if (position >= sourceTokens[last].End)
 					return sentence.TargetOffset + sentence.Target.Length;
-				int next = tokens.FindIndex(token => token.Begin >= position);
-				return next >= 0 ? TargetPosition(tokens[next], start: true) : TargetPosition(tokens.Last(token => token.Begin < position), start: false);
+				int previous = -1;
+				for (int s = first; s <= last; s++)
+				{
+					if (sourceTokens[s].End <= sourceTokens[s].Begin)
+						continue;
+					if (sourceTokens[s].Begin >= position)
+						return TargetPosition(sourceTokens[s], start: true);
+					previous = s;
+				}
+				return TargetPosition(sourceTokens[previous], start: false);
 			}
 			foreach (var (sourceStart, sourceEnd, targetStart, targetLength) in run.Gaps)
 			{
@@ -526,10 +607,10 @@ internal static partial class MarkupProjection
 			var sentence = source.Sentence;
 			int result = -1;
 			int best = -1;
-			for (int t = 0; t < targetTokens.Count; t++)
+			for (int t = sentence.TargetBase; t < sentence.TargetBase + sentence.TargetTokens.Count; t++)
 			{
 				var token = targetTokens[t];
-				if (token.Sentence != sentence || token.End <= token.Begin)
+				if (token.End <= token.Begin)
 					continue;
 				if (sourceTokens[hard[t]].Equals(source))
 					result = result < 0 ? (start ? token.Begin : token.End) : start ? Math.Min(result, token.Begin) : Math.Max(result, token.End);

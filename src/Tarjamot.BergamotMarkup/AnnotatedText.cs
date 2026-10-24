@@ -2,6 +2,8 @@
 // of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // Ported from bergamot-translator's src/translator/annotation.{h,cpp}.
 
+using System.Runtime.InteropServices;
+
 namespace Tarjamot.BergamotMarkup;
 
 /// <summary>
@@ -27,14 +29,15 @@ internal sealed class AnnotatedText
 	}
 
 	/// <summary>Existing text, one gap until <see cref="RecordExistingSentence"/> divides it.</summary>
-	public AnnotatedText(byte[] existing, string? targetLanguage)
+	public AnnotatedText(ReadOnlySpan<byte> existing, string? targetLanguage)
 	{
 		text = [.. existing];
 		tokenBegin[^1] = existing.Length;
 		this.targetLanguage = targetLanguage;
 	}
 
-	public byte[] Text => text.ToArray();
+	/// <summary>The text without copying it; valid until the text changes.</summary>
+	public ReadOnlySpan<byte> Text => CollectionsMarshal.AsSpan(text);
 
 	public int NumSentences => gaps.Count - 1;
 
@@ -50,11 +53,11 @@ internal sealed class AnnotatedText
 
 	public (int Begin, int End) SentenceRange(int sentence) => (tokenBegin[gaps[sentence] + 1], tokenBegin[gaps[sentence + 1]]);
 
-	public byte[] Slice((int Begin, int End) range) => text.GetRange(range.Begin, range.End - range.Begin).ToArray();
+	public ReadOnlySpan<byte> Slice((int Begin, int End) range) => Text[range.Begin..range.End];
 
-	public byte[] Word(int sentence, int word) => Slice(WordRange(sentence, word));
+	public ReadOnlySpan<byte> Word(int sentence, int word) => Slice(WordRange(sentence, word));
 
-	public byte[] Gap(int gap) => Slice(GapRange(gap));
+	public ReadOnlySpan<byte> Gap(int gap) => Slice(GapRange(gap));
 
 	/// <summary>Appends a sentence after the gap <paramref name="prefix"/>; its tokens are contiguous in <paramref name="sentence"/>.</summary>
 	public void AppendSentence(ReadOnlySpan<byte> prefix, ReadOnlySpan<byte> sentence, IReadOnlyList<(int Begin, int End)> tokens)
@@ -108,27 +111,37 @@ internal sealed class AnnotatedText
 		tokenBegin.Add(text.Count);
 	}
 
+	/// <summary>Writes the replacement of a gap or token (<paramref name="token"/>, at <paramref name="range"/>) to <paramref name="output"/>.</summary>
+	public delegate void TokenMap((int Begin, int End) range, ReadOnlySpan<byte> token, bool last, List<byte> output);
+
 	/// <summary>
 	/// Rebuilds the text by calling <paramref name="map"/> on every gap and token in order (the
 	/// last call is the final gap), as AnnotatedText::apply.
 	/// </summary>
-	public AnnotatedText Apply(Func<(int Begin, int End), byte[], bool, byte[]> map)
+	public AnnotatedText Apply(TokenMap map)
 	{
 		var result = new AnnotatedText(targetLanguage);
+		// Reused for every sentence: the gap before it, its tokens and their ranges in the content.
+		var prefix = new List<byte>();
+		var content = new List<byte>();
+		var tokens = new List<(int Begin, int End)>();
 		for (int sentence = 0; sentence < NumSentences; sentence++)
 		{
-			var prefix = map(GapRange(sentence), Gap(sentence), false);
-			var content = new List<byte>();
-			var tokens = new List<(int Begin, int End)>();
+			prefix.Clear();
+			map(GapRange(sentence), Gap(sentence), false, prefix);
+			content.Clear();
+			tokens.Clear();
 			for (int word = 0; word < NumWords(sentence); word++)
 			{
-				var token = map(WordRange(sentence, word), Word(sentence, word), false);
-				tokens.Add((content.Count, content.Count + token.Length));
-				content.AddRange(token);
+				int begin = content.Count;
+				map(WordRange(sentence, word), Word(sentence, word), false, content);
+				tokens.Add((begin, content.Count));
 			}
-			result.AppendSentence(prefix, content.ToArray(), tokens);
+			result.AppendSentence(CollectionsMarshal.AsSpan(prefix), CollectionsMarshal.AsSpan(content), tokens);
 		}
-		result.HandleEndingWhitespace(map(GapRange(NumSentences), Gap(NumSentences), true), betweenSentences: false);
+		prefix.Clear();
+		map(GapRange(NumSentences), Gap(NumSentences), true, prefix);
+		result.HandleEndingWhitespace(CollectionsMarshal.AsSpan(prefix), betweenSentences: false);
 		return result;
 	}
 

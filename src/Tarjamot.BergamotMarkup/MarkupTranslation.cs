@@ -40,7 +40,7 @@ internal static class MarkupTranslation
 				responses[i] = new MarkupResponse(responses[i].Source, pivotResponses[i].Target, RemapAlignments(responses[i], pivotResponses[i]));
 		}
 
-		return responses.Select((response, i) => Encoding.UTF8.GetString(markups[i].Restore(response))).ToArray();
+		return responses.Select((response, i) => markups[i].Restore(response)).ToArray();
 	}
 
 	// Segments the plain text into sentences (Intl.Segmenter rules) and records the sentences with
@@ -78,7 +78,7 @@ internal static class MarkupTranslation
 		{
 			var (begin, end) = intermediate.SentenceRange(sentence);
 			var ranges = new List<(int Begin, int End)>();
-			var ids = engine.SourceVocab.Encode(text.AsSpan(begin, end - begin), ranges);
+			var ids = engine.SourceVocab.Encode(text[begin..end], ranges);
 			var wordRanges = ranges.Select(r => (r.Begin + begin, r.End + begin)).ToList();
 			int eos = wordRanges.Count > 0 ? wordRanges[^1].Item2 : end;
 			wordRanges.Add((eos, eos));
