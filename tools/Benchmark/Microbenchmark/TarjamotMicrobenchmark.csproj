@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Not copied: each run loads the engine from the build output given on the command line. The
+         engine's internals are visible to this assembly. -->
+    <ProjectReference Include="..\..\..\src\Tarjamot\Tarjamot.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

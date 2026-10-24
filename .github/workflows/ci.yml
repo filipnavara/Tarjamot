@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    name: Test ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Every kernel: SDOT on ARM, AVX-512/AVX2 on x86. The model tests download about 75 MB
+          # from Mozilla's CDN, cached between runs.
+          - { name: linux-x64, os: ubuntu-latest, models: true }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, models: true }
+          - { name: windows-x64, os: windows-latest, models: true }
+          - { name: macos-arm64, os: macos-latest, models: true }
+          # Instruction-set fallbacks, unit tests only.
+          - { name: linux-x64-avx2, os: ubuntu-latest, flags: DOTNET_EnableAVX512=0 }
+          - { name: linux-x64-portable, os: ubuntu-latest, flags: DOTNET_EnableAVX2=0 }
+          - { name: linux-arm64-portable, os: ubuntu-24.04-arm, flags: DOTNET_EnableArm64Dp=0 }
+          - { name: linux-x64-scalar, os: ubuntu-latest, flags: DOTNET_EnableHWIntrinsic=0 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build -c Release
+      - name: Cache models
+        if: matrix.models
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/tarjamot-models
+          key: tarjamot-models-${{ runner.os }}-v1
+      - name: Test
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.flags }}" ]; then export ${{ matrix.flags }}; fi
+          filter=""
+          if [ "${{ matrix.models }}" != "true" ]; then filter="--filter TestCategory!=ExternalServices"; fi
+          dotnet test -c Release --no-build $filter --logger trx --results-directory TestResults
+        env:
+          TARJAMOT_TEST_MODELS: ${{ runner.temp }}/tarjamot-models
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.name }}
+          path: TestResults
+
+  pack:
+    name: Pack
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Pack
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="-p:Version=${GITHUB_REF#refs/tags/v}"
+          else
+            version="-p:VersionSuffix=ci.${{ github.run_number }}"
+          fi
+          dotnet pack src/Tarjamot -c Release -o artifacts $version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/*
+
+  publish:
+    name: Publish to NuGet
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: artifacts
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Push
+        shell: bash
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::warning::NUGET_API_KEY is not set; skipping the push."
+            exit 0
+          fi
+          dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

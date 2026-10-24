@@ -1,0 +1,3 @@
+# Bash rejects CRLF scripts, and the corpus fixture is compared by its SHA-256.
+*.sh text eol=lf
+Scripts/email-cs.html -text

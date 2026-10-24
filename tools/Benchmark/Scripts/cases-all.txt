@@ -1,0 +1,12 @@
+email-none|cs en email-cs.txt none 0 0 2 30
+email-within|cs en email-cs.txt within 0 0 2 30
+email-across|cs en email-cs.txt across 0 0 2 30
+email-short|cs en email-cs.txt within 1 0 2 30
+html-within|cs en email-cs.html within 0 1 2 30
+pivot-within|cs ja email-cs.txt within 0 0 2 20
+cs-none|cs en article-cs.txt none 0 0 2 5
+cs-within|cs en article-cs.txt within 0 0 2 7
+cs-across|cs en article-cs.txt across 0 0 2 15
+zh-none|zh-Hans en article-zh.txt none 0 0 2 3
+zh-within|zh-Hans en article-zh.txt within 0 0 2 5
+zh-across|zh-Hans en article-zh.txt across 0 0 2 7

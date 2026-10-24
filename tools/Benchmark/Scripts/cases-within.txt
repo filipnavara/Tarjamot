@@ -1,0 +1,4 @@
+email-within|cs en email-cs.txt within 0 0 2 30
+pivot-within|cs ja email-cs.txt within 0 0 2 20
+cs-within|cs en article-cs.txt within 0 0 2 7
+zh-within|zh-Hans en article-zh.txt within 0 0 2 5

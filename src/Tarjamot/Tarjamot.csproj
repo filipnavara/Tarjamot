@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Unoptimized, translation is about 5x slower, so Debug builds of an app optimize this library
+         too. TarjamotDebug=true turns that off for stepping through the engine. -->
+    <Optimize Condition="'$(TarjamotDebug)' != 'true'">true</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Tarjamot</PackageId>
+    <Description>Local machine translation with the Firefox Translations (Bergamot) models in pure .NET: int8 Marian inference matching Firefox's engine, model download from Mozilla, pivoting through English, and HTML with inline markup.</Description>
+    <PackageTags>translation;machine-translation;bergamot;marian;firefox;offline;nmt</PackageTags>
+    <PackageLicenseExpression>MIT AND MPL-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1573;CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- TarjamotPlatformMath=true replaces the musl ports with MathF, see docs/PERFORMANCE.md "Platform math". -->
+  <PropertyGroup Condition="'$(TarjamotPlatformMath)' == 'true'">
+    <DefineConstants>$(DefineConstants);TARJAMOT_PLATFORM_MATH</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Numerics.Tensors" />
+    <PackageReference Include="ZstdSharp.Port" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tarjamot.Tests" />
+    <InternalsVisibleTo Include="TarjamotMicrobenchmark" />
+  </ItemGroup>
+</Project>
