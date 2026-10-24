@@ -2,7 +2,7 @@
 // of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // Ported from bergamot-translator's src/translator/annotation.{h,cpp}.
 
-namespace Tarjamot.Markup;
+namespace Tarjamot.BergamotMarkup;
 
 /// <summary>
 /// Port of Bergamot's AnnotatedText: UTF-8 text divided into gaps and sentences of tokens,

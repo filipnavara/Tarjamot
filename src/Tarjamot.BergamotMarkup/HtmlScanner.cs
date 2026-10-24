@@ -4,7 +4,7 @@
 // Compact HTML/XML Scanner/Tokenizer" (Copyright (c) Andrew Fedoniouk, BSD-3-Clause license, see
 // THIRD-PARTY-NOTICES.md) with Bergamot's modifications (MPL-2.0).
 
-namespace Tarjamot.Markup;
+namespace Tarjamot.BergamotMarkup;
 
 /// <summary>
 /// Port of Bergamot's markup scanner (xh_scanner.cpp: Andrew Fedoniouk's "Fast and Compact

@@ -1,5 +1,5 @@
 using System.Text;
-using Tarjamot.Markup;
+using Tarjamot.BergamotMarkup;
 using NUnit.Framework;
 
 namespace Tarjamot.Tests;

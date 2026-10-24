@@ -4,7 +4,7 @@
 
 using System.Text;
 
-namespace Tarjamot.Markup;
+namespace Tarjamot.BergamotMarkup;
 
 /// <summary>Bergamot's Response for markup: source and target text with soft alignments.</summary>
 /// <param name="Alignments">Per sentence, per target token (including EOS), the probability of each source token (including EOS).</param>

@@ -44,6 +44,12 @@ public sealed record TranslationOptions
 	/// <summary>Splits lines into sentences; when false, each line is translated as one sentence.</summary>
 	public bool SplitSentences { get; init; } = true;
 
+	/// <summary>
+	/// How HTML fragments keep their markup: <see cref="ProjectedMarkupTranslator"/> (the default),
+	/// or BergamotMarkupTranslator from the Tarjamot.BergamotMarkup package for Firefox's exact output.
+	/// </summary>
+	public MarkupTranslator MarkupTranslator { get; init; } = ProjectedMarkupTranslator.Instance;
+
 	/// <summary>Uses the portable int8 kernel even where a platform-specific one is available.</summary>
 	public bool UsePortableKernel { get; init; }
 

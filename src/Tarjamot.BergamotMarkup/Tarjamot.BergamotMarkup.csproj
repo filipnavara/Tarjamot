@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+    <Optimize Condition="'$(TarjamotDebug)' != 'true'">true</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Tarjamot.BergamotMarkup</PackageId>
+    <Description>Firefox's HTML translation for Tarjamot: a port of Bergamot's HTML mode, which places the markup of HTML fragments along the model's alignments exactly as Firefox does. Use it with TranslationOptions.MarkupTranslator = BergamotMarkupTranslator.Instance.</Description>
+    <PackageTags>translation;machine-translation;bergamot;marian;firefox;offline;nmt;html</PackageTags>
+    <!-- Ported from bergamot-translator (MPL-2.0), whose HTML scanner is BSD-3-Clause; see
+         THIRD-PARTY-NOTICES.md. -->
+    <PackageLicenseExpression>MPL-2.0 AND BSD-3-Clause</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1573;CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Tarjamot/Tarjamot.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tarjamot.Tests" />
+  </ItemGroup>
+
+  <!-- The package uses Tarjamot's internals (InternalsVisibleTo), so it depends on exactly the
+       version built from the same commit rather than on that version or later. -->
+  <Target Name="PinTarjamotVersion" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)" ProjectVersion="[%(ProjectVersion)]" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -59,6 +59,24 @@ public class LocalTranslatorTest
 	[TestCase("cs", "ja", "<p>Prvn\u00ED odstavec.</p><p>Druh\u00FD odstavec s <i>kurz\u00EDvou</i>.</p>", "<p>\u6700\u521D\u306E\u6BB5\u843D\u3002</p><p><i></i>\u30A4\u30BF\u30EA\u30A2\u8A9E\u306B\u3088\u308B\u7B2C2\u6BB5\u843D\u3002</p>")]
 	public async Task TranslatesMarkupLikeFirefox(string source, string target, string html, string expected)
 	{
+		using var translator = new LocalTranslator(store, new TranslationOptions { MarkupTranslator = BergamotMarkupTranslator.Instance });
+		Assert.That(await translator.TranslateMarkupAsync(source, target, [html]), Is.EqualTo(new[] { expected }));
+	}
+
+	// ProjectedMarkupTranslator, the default: the same fragments as above and a few more. These are
+	// Tarjamot's own outputs, not Firefox's; see docs/MARKUP-COMPARISON.md.
+	[TestCase("cs", "en", "Klikn\u011Bte <a href=\"x\">sem</a> pro odhl\u00E1\u0161en\u00ED odb\u011Bru.", "Click <a href=\"x\">here</a> to unsubscribe.")]
+	[TestCase("cs", "en", "<p>Prvn\u00ED odstavec.</p><p>Druh\u00FD odstavec s <i>kurz\u00EDvou</i>.</p>", "<p>The first paragraph.</p><p>Second paragraph with <i>italics</i>.</p>")]
+	[TestCase("en", "ja", "<p>The first paragraph.</p><p>The second paragraph has a <a href=x>link</a>.</p>", "<p>\u6700\u521D\u306E\u6BB5\u843D\u3002</p><p>2\u756A\u76EE\u306E\u6BB5\u843D<a href=x>\u306B\u306F\u30EA\u30F3\u30AF</a>\u304C\u3042\u308A\u307E\u3059\u3002</p>")]
+	[TestCase("en", "ja", "Two sentences. <b>The second one is bold. And so is the third.</b> The fourth is not.", "2\u6587\u3002<b>2\u3064\u76EE\u306F\u5927\u80C6\u3067\u3059\u3002\u305D\u3057\u3066\u7B2C\u4E09\u3082\u540C\u69D8\u3067\u3042\u308B\u3002</b>\u7B2C\u56DB\u306F\u305D\u3046\u3067\u306F\u306A\u3044\u3002")]
+	[TestCase("cs", "ja", "Klikn\u011Bte <a href=\"x\">sem</a> pro odhl\u00E1\u0161en\u00ED odb\u011Bru.", "<a href=\"x\">\u3053\u3053</a>\u3092\u30AF\u30EA\u30C3\u30AF\u3057\u3066\u914D\u4FE1\u3092\u89E3\u9664\u3057\u3066\u304F\u3060\u3055\u3044\u3002")]
+	[TestCase("cs", "ja", "<p>Prvn\u00ED odstavec.</p><p>Druh\u00FD odstavec s <i>kurz\u00EDvou</i>.</p>", "<p>\u6700\u521D\u306E\u6BB5\u843D\u3002</p><p><i>\u30A4\u30BF\u30EA\u30A2\u8A9E</i>\u306B\u3088\u308B\u7B2C2\u6BB5\u843D\u3002</p>")]
+	[TestCase("en", "ja", "Run <code>git push</code> to upload your changes to the server.", "\u5909\u66F4\u5185\u5BB9\u3092\u30B5\u30FC\u30D0\u30FC\u306B\u30A2\u30C3\u30D7\u30ED\u30FC\u30C9<code>git push</code>\u3059\u308B\u306B\u306F\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002")]
+	[TestCase("en", "ja", "Tom &amp; Jerry &lt;3 forever&hellip; and the price is &euro;5&nbsp;per month.", "\u30C8\u30E0&amp;\u30B8\u30A7\u30EA\u30FC &lt;3 \u6C38\u4E45...\u305D\u3057\u3066\u6708\u984D5\u30E6\u30FC\u30ED\u3067\u3059\u3002")]
+	[TestCase("en", "ja", "<b>Prague</b> is the capital and largest city of the <a href=\"/wiki/Czech_Republic\">Czech Republic</a> and the historical capital of <a href=\"/wiki/Bohemia\">Bohemia</a>.", "<b>\u30D7\u30E9\u30CF</b>\u306F<a href=\"/wiki/Czech_Republic\">\u30C1\u30A7\u30B3\u5171\u548C\u56FD</a>\u306E\u9996\u90FD\u3067\u3042\u308A\u6700\u5927\u306E\u90FD\u5E02\u3067\u3042\u308A\u3001<a href=\"/wiki/Bohemia\">\u30DC\u30D8\u30DF\u30A2</a>\u306E\u6B74\u53F2\u7684\u9996\u90FD\u3067\u3059\u3002")]
+	[TestCase("cs", "ja", "Toto je <i>velmi <b>d\u016Fle\u017Eit\u00E1</b> zpr\u00E1va</i> pro v\u0161echny.", "\u3053\u308C\u306F\u8AB0\u306B\u3068\u3063\u3066\u3082<i><b>\u975E\u5E38\u306B\u91CD\u8981\u306A</b>\u30E1\u30C3\u30BB\u30FC\u30B8</i>\u3067\u3059\u3002")]
+	public async Task TranslatesMarkupByProjection(string source, string target, string html, string expected)
+	{
 		using var translator = new LocalTranslator(store);
 		Assert.That(await translator.TranslateMarkupAsync(source, target, [html]), Is.EqualTo(new[] { expected }));
 	}

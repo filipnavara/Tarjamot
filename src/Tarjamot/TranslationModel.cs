@@ -54,9 +54,9 @@ public sealed class TranslationModel
 	public string Translate(string text, CancellationToken cancellationToken = default) =>
 		TextTranslation.Translate(text, [this], targetLanguage, options.SplitSentences, cancellationToken);
 
-	/// <summary>Translates HTML fragments as Firefox does, see <see cref="LocalTranslator.TranslateMarkupAsync"/>.</summary>
+	/// <summary>Translates HTML fragments, see <see cref="LocalTranslator.TranslateMarkupAsync"/>.</summary>
 	public string[] TranslateMarkup(IReadOnlyList<string> fragments, CancellationToken cancellationToken = default) =>
-		Markup.MarkupTranslation.Translate(fragments, [this], cancellationToken);
+		options.MarkupTranslator.Translate(fragments, [this], cancellationToken);
 
 	internal MarianEngine Engine => engine;
 

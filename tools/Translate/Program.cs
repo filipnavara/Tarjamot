@@ -14,7 +14,7 @@ const string Usage = """
 	      Downloads the models for a direction (two models when pivoting through English).
 	  Translate installed
 	      Lists the downloaded language pairs.
-	  Translate <from> <to> [text...] [--input <file>] [--html | --html-json] [--shortlist] [--single-thread] [--across-sentences] [--portable] [--no-split] [--benchmark <runs>]
+	  Translate <from> <to> [text...] [--input <file>] [--html | --html-json] [--projected] [--shortlist] [--single-thread] [--across-sentences] [--portable] [--no-split] [--benchmark <runs>]
 	      Translates the text, the input file, or standard input when neither is given (UTF-8).
 	      Models must be downloaded.
 
@@ -28,6 +28,8 @@ const string Usage = """
 	  --no-split             Translate each input line as one sentence.
 	  --html                 The text is an HTML fragment; its markup is kept around the translated words.
 	  --html-json            The text is a JSON array of HTML fragments; prints a JSON array of translations.
+	  --projected            Place the markup with ProjectedMarkupTranslator instead of Firefox's
+	                         algorithm (BergamotMarkupTranslator from Tarjamot.BergamotMarkup).
 	  --benchmark <runs>     Translate repeatedly and report the speed.
 	  --mobile               Select the models published for Android.
 	""";
@@ -47,6 +49,7 @@ bool portable = TakeFlag(arguments, "--portable");
 bool noSplit = TakeFlag(arguments, "--no-split");
 bool html = TakeFlag(arguments, "--html");
 bool htmlJson = TakeFlag(arguments, "--html-json");
+bool projected = TakeFlag(arguments, "--projected");
 var platform = TakeFlag(arguments, "--mobile") ? TranslationPlatform.Mobile : TranslationPlatform.Desktop;
 
 using var httpClient = new HttpClient();
@@ -121,6 +124,7 @@ async Task TranslateAsync(string from, string to, string text)
 		Parallelism = singleThread ? TranslationParallelism.None : acrossSentences ? TranslationParallelism.AcrossSentences : TranslationParallelism.WithinProducts,
 		UsePortableKernel = portable,
 		SplitSentences = !noSplit,
+		MarkupTranslator = projected ? ProjectedMarkupTranslator.Instance : BergamotMarkupTranslator.Instance,
 	};
 	using var translator = new LocalTranslator(store, options);
 	if (translator.FindRoute(from, to) is not { } route)
