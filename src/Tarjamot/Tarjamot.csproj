@@ -12,7 +12,7 @@
     <PackageId>Tarjamot</PackageId>
     <Description>Local machine translation with the Firefox Translations (Bergamot) models in pure .NET: int8 Marian inference matching Firefox's engine, model download from Mozilla, pivoting through English, and HTML with inline markup.</Description>
     <PackageTags>translation;machine-translation;bergamot;marian;firefox;offline;nmt</PackageTags>
-    <PackageLicenseExpression>MIT AND MPL-2.0</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT AND MPL-2.0 AND BSD-3-Clause</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1573;CS1591</NoWarn>

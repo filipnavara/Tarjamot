@@ -2,7 +2,8 @@
 
 Tarjamot is MIT-licensed (see [LICENSE](LICENSE)). Parts of it are ports of, or follow, the
 projects below. Files ported from MPL-2.0 code carry the MPL-2.0 header and remain under that
-license.
+license; the one file with BSD-licensed origins carries that notice too. The NuGet package's
+license expression is `MIT AND MPL-2.0 AND BSD-3-Clause`.
 
 ## bergamot-translator (MPL-2.0)
 
@@ -15,15 +16,42 @@ Ported, MPL-2.0 header in the file:
 - `src/Tarjamot/Markup/MarkupTranslation.cs`: the HTML and alignment parts of
   `src/translator/response_builder.cpp`, `text_processor.cpp` and `translation_model.cpp`
   (`remapAlignments`)
+- `src/Tarjamot/Markup/HtmlScanner.cs`: `src/translator/xh_scanner.{h,cpp}`, Bergamot's modified
+  copy of the BSD-licensed xh_scanner below (the modifications are MPL-2.0)
 
 The text translation (`TextTranslation.cs`) reproduces the behavior of `AnnotatedText` and the
 WASM build's batching without copying their code.
 
-## xh_scanner (BSD)
+## xh_scanner (BSD-3-Clause)
 
 `src/Tarjamot/Markup/HtmlScanner.cs` is a port of bergamot-translator's
-`src/translator/xh_scanner.{h,cpp}`, after Andrew Fedoniouk's "Fast and Compact HTML/XML
-Scanner/Tokenizer" (https://www.codeproject.com/Articles/14076), BSD license.
+`src/translator/xh_scanner.{h,cpp}`, which is Andrew Fedoniouk's "Fast and Compact HTML/XML
+Scanner/Tokenizer" (https://www.codeproject.com/Articles/14076, published under CodeProject's
+"The BSD License", the 3-clause BSD license) as modified by Bergamot. The modifications are
+MPL-2.0 (above); the original is:
+
+Copyright (c) Andrew Fedoniouk (terrainformatica.com). All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of
+   conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of
+   conditions and the following disclaimer in the documentation and/or other materials provided
+   with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors may be used to
+   endorse or promote products derived from this software without specific prior written
+   permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## Marian (MIT)
 

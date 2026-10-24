@@ -1,9 +1,16 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy
+// of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// Ported from bergamot-translator's src/translator/xh_scanner.{h,cpp}: Andrew Fedoniouk's "Fast and
+// Compact HTML/XML Scanner/Tokenizer" (Copyright (c) Andrew Fedoniouk, BSD-3-Clause license, see
+// THIRD-PARTY-NOTICES.md) with Bergamot's modifications (MPL-2.0).
+
 namespace Tarjamot.Markup;
 
 /// <summary>
-/// Port of Bergamot's markup scanner (xh_scanner.cpp, after Andrew Fedoniouk's "Fast and Compact
-/// HTML/XML Scanner", BSD license). It works on UTF-8 bytes like the original, so offsets, entity
-/// decoding and whitespace handling are identical. A NUL byte ends the input, as in C.
+/// Port of Bergamot's markup scanner (xh_scanner.cpp: Andrew Fedoniouk's "Fast and Compact
+/// HTML/XML Scanner", BSD, as modified by Bergamot, MPL-2.0). It works on UTF-8 bytes like the
+/// original, so offsets, entity decoding and whitespace handling are identical. A NUL byte ends the
+/// input, as in C.
 /// </summary>
 internal sealed class HtmlScanner
 {
