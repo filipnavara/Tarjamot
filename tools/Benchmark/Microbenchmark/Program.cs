@@ -10,6 +10,7 @@ using Tarjamot.Engine;
 const string Usage = """
 	Usage:
 	  TarjamotMicrobenchmark <bin directory> gemm [seconds]   int8 products and argmax on the model shapes (GMAC/s)
+	  TarjamotMicrobenchmark <bin directory> rowmajor [seconds] row-major products (shortlist, portable kernel) and argmax
 	  TarjamotMicrobenchmark <bin directory> load <model>     model loading: first and later loads, live bytes
 	  TarjamotMicrobenchmark <bin directory> output <model>   output-layer conversion of the embeddings, per call
 	  TarjamotMicrobenchmark <bin directory> sizes <model>    weight, row-sum and saturation metadata sizes
@@ -40,6 +41,12 @@ switch (args[1..])
 		break;
 	case ["gemm", var seconds]:
 		Benchmarks.Gemm(double.Parse(seconds));
+		break;
+	case ["rowmajor"]:
+		Benchmarks.RowMajor(0.5);
+		break;
+	case ["rowmajor", var seconds]:
+		Benchmarks.RowMajor(double.Parse(seconds));
 		break;
 	case ["load", var model]:
 		Benchmarks.Load(model);
@@ -108,6 +115,53 @@ static class Benchmarks
 						Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, y, kernel, false);
 				}, 0.3, seconds);
 				Console.WriteLine($"{name,-9} w={width,4} o={outputs,5} rows={rows,3}: {(double)rows * width * outputs / nanoseconds,6:F1} GMAC/s");
+			}
+		}
+	}
+
+	// The products that use row-major weights: the shortlisted output layer (one row against the
+	// selected vocabulary rows) with every kernel, and all products with the portable kernel.
+	public static void RowMajor(double seconds)
+	{
+		var kernels = Int8Gemm.DefaultKernel == Int8Kernel.Portable ? new[] { Int8Kernel.Portable } : new[] { Int8Gemm.DefaultKernel, Int8Kernel.Portable };
+		(string Name, int Width, int Outputs, int Selected, bool ArgMax, int[] Rows)[] cases =
+		[
+			("cs short", 384, 32000, 1000, false, [1]), ("cs short", 384, 32000, 4000, false, [1]),
+			("zh short", 512, 64000, 4000, false, [1]),
+			("cs ffn1", 384, 1536, 0, false, [1, 6, 42]), ("cs ffn2", 1536, 384, 0, false, [1, 6, 42]),
+			("cs vocab", 384, 32000, 0, true, [1, 6]),
+		];
+		foreach (var kernel in kernels)
+		{
+			foreach (var (name, width, outputs, selected, argMax, rowCounts) in cases)
+			{
+				if (kernel != Int8Kernel.Portable && selected == 0)
+					continue;
+				var random = new Random(width * 7 + outputs);
+				// Weights in [-64, 63], as in Gemm.
+				var weights = new sbyte[(long)outputs * width];
+				for (long i = 0; i < weights.LongLength; i++)
+					weights[i] = (sbyte)random.Next(-64, 64);
+				var matrix = QuantizedMatrix.Create(weights, outputs, width, 40f, 0f);
+				var prepared = Int8Gemm.PrepareBias(matrix, 100f, null);
+				int[]? weightRows = selected == 0 ? null : Enumerable.Range(0, outputs).OrderBy(_ => random.Next()).Take(selected).Order().ToArray();
+				int columns = weightRows?.Length ?? outputs;
+				foreach (int rows in rowCounts)
+				{
+					var x = Enumerable.Range(0, rows * width).Select(_ => (float)(random.NextDouble() * 2 - 1)).ToArray();
+					var activations = new QuantizedActivations();
+					Int8Gemm.Quantize(x, 100f, activations, kernel);
+					var y = new float[rows * columns];
+					var scratch = new ArgMaxScratch();
+					double nanoseconds = Time(() =>
+					{
+						if (argMax)
+							Int8Gemm.MultiplyArgMax(activations, rows, matrix, 1f / 4000f, prepared, 1, scratch, kernel, false);
+						else
+							Int8Gemm.Multiply(activations, rows, matrix, weightRows, 1f / 4000f, prepared, y, kernel, false);
+					}, 0.3, seconds);
+					Console.WriteLine($"{kernel,-13} {name,-8} w={width,4} o={columns,5} rows={rows,3}: {(double)rows * width * columns / nanoseconds,6:F1} GMAC/s");
+				}
 			}
 		}
 	}

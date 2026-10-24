@@ -177,11 +177,30 @@ internal static partial class Int8Gemm
 		MultiplyRowMajor(a, rows, w, weightRows, outputs, unquant, preparedBias, y, kernel, parallel);
 	}
 
+	// Row-major kernels as type arguments: the JIT compiles the loops once per kernel with the
+	// kernel tests folded to constants, instead of testing an Int8Kernel value per tile.
+	// Instantiate X86Rows only when Avx2.IsSupported and ArmRows only when Dp.IsSupported.
+	struct PortableRows;
+
+	struct ArmRows;
+
+	struct X86Rows;
+
 	static void MultiplyRowMajor(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, int outputs, float unquant, float[] preparedBias, float[] y, Int8Kernel kernel, bool parallel)
 	{
+		int chunks = ParallelChunks((long)rows * w.Cols * outputs, outputs, kernel, parallel);
+		if (Avx2.IsSupported && kernel == Int8Kernel.X86)
+			MultiplyRowMajor<X86Rows>(a, rows, w, weightRows, outputs, unquant, preparedBias, y, chunks);
+		else if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+			MultiplyRowMajor<ArmRows>(a, rows, w, weightRows, outputs, unquant, preparedBias, y, chunks);
+		else
+			MultiplyRowMajor<PortableRows>(a, rows, w, weightRows, outputs, unquant, preparedBias, y, chunks);
+	}
+
+	static void MultiplyRowMajor<TKernel>(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, int outputs, float unquant, float[] preparedBias, float[] y, int chunks)
+		where TKernel : struct
+	{
 		int width = w.Cols;
-		long work = (long)rows * width * outputs;
-		int chunks = ParallelChunks(work, outputs, kernel, parallel);
 		if (chunks > 1)
 		{
 			Parallel.For(0, chunks, c => ComputeRange(outputs * c / chunks, outputs * (c + 1) / chunks));
@@ -202,7 +221,7 @@ internal static partial class Int8Gemm
 				int blockEnd = Math.Min(rows, blockStart + rowBlock);
 				int j = start;
 				// A 4 x 2 tile shares activation loads between two output columns as well.
-				if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+				if (typeof(TKernel) == typeof(ArmRows))
 				{
 					for (; j + 1 < end; j += 2)
 					{
@@ -218,8 +237,8 @@ internal static partial class Int8Gemm
 								DotArm4x2(a.Values.AsSpan(r * width, 4 * width), w0, w1, sums);
 							else
 							{
-								Dot(a, r, count, w0, sums, kernel);
-								Dot(a, r, count, w1, sums[4..], kernel);
+								Dot<TKernel>(a, r, count, w0, sums);
+								Dot<TKernel>(a, r, count, w1, sums[4..]);
 							}
 							for (int k = 0; k < count; k++)
 							{
@@ -238,14 +257,14 @@ internal static partial class Int8Gemm
 					var weights = w.Data.AsSpan(row * width, width);
 					float b = preparedBias[row];
 					int shift = 127 * w.RowSums[row];
-					var pairs = RowPairs(w, row, kernel);
+					var pairs = RowPairs<TKernel>(w, row);
 					for (int r = blockStart; r < blockEnd; r += 4)
 					{
 						int count = Math.Min(4, blockEnd - r);
-						Dot(a, r, count, weights, sums, kernel);
+						Dot<TKernel>(a, r, count, weights, sums);
 						for (int k = 0; k < count; k++)
 						{
-							int sum = Avx2.IsSupported && kernel == Int8Kernel.X86 ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
+							int sum = typeof(TKernel) == typeof(X86Rows) ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
 							y[(r + k) * outputs + j] = sum * unquant + b;
 						}
 					}
@@ -256,7 +275,7 @@ internal static partial class Int8Gemm
 
 	// The saturating pairs of a row for the kernels that correct them; none for the x86 kernel, whose
 	// matrices may have no metadata.
-	static ReadOnlySpan<int> RowPairs(QuantizedMatrix w, int row, Int8Kernel kernel) => UsesSaturationMetadata(kernel)
+	static ReadOnlySpan<int> RowPairs<TKernel>(QuantizedMatrix w, int row) where TKernel : struct => typeof(TKernel) != typeof(X86Rows) || X86ExactSums
 		? w.SaturationPairs.AsSpan(w.SaturationOffsets[row], w.SaturationOffsets[row + 1] - w.SaturationOffsets[row])
 		: [];
 
@@ -294,15 +313,16 @@ internal static partial class Int8Gemm
 	// vector is loaded once for several rows.
 	// For the x86 kernel, the sums are intgemm's complete Int8Shift products; otherwise they are
 	// exact signed products, without the shift and the saturation.
-	static void Dot(QuantizedActivations a, int firstRow, int count, ReadOnlySpan<sbyte> w, Span<int> sums, Int8Kernel kernel)
+	static void Dot<TKernel>(QuantizedActivations a, int firstRow, int count, ReadOnlySpan<sbyte> w, Span<int> sums)
+		where TKernel : struct
 	{
 		int width = w.Length;
-		if (Avx2.IsSupported && kernel == Int8Kernel.X86)
+		if (typeof(TKernel) == typeof(X86Rows))
 		{
 			DotX86RowMajor(a.Shifted.AsSpan(firstRow * width, count * width), count, w, sums);
 			return;
 		}
-		if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+		if (typeof(TKernel) == typeof(ArmRows))
 		{
 			var values = a.Values.AsSpan(firstRow * width, count * width);
 			if (count == 4)

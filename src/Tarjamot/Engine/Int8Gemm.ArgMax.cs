@@ -96,8 +96,12 @@ internal static partial class Int8Gemm
 				throw new PlatformNotSupportedException();
 			ArgMaxPackedRange(a, rows, w, unquant, preparedBias, excluded, scratch, chunkBase, start, end);
 		}
+		else if (Avx2.IsSupported && kernel == Int8Kernel.X86)
+			ArgMaxRowMajorRange<X86Rows>(a, rows, w, unquant, preparedBias, excluded, scratch, chunkBase, start, end);
+		else if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+			ArgMaxRowMajorRange<ArmRows>(a, rows, w, unquant, preparedBias, excluded, scratch, chunkBase, start, end);
 		else
-			ArgMaxRowMajorRange(a, rows, w, unquant, preparedBias, excluded, scratch, kernel, chunkBase, start, end);
+			ArgMaxRowMajorRange<PortableRows>(a, rows, w, unquant, preparedBias, excluded, scratch, chunkBase, start, end);
 	}
 
 	static void ArgMaxPackedRange(QuantizedActivations a, int rows, QuantizedMatrix w, float unquant,
@@ -199,8 +203,8 @@ internal static partial class Int8Gemm
 
 	// Rows are processed in blocks small enough to stay in L1 cache while the weight rows
 	// stream through; each weight vector load is shared by up to four activation rows.
-	static void ArgMaxRowMajorRange(QuantizedActivations a, int rows, QuantizedMatrix w, float unquant, float[] preparedBias,
-		int excluded, ArgMaxScratch scratch, Int8Kernel kernel, int chunkBase, int start, int end)
+	static void ArgMaxRowMajorRange<TKernel>(QuantizedActivations a, int rows, QuantizedMatrix w, float unquant, float[] preparedBias,
+		int excluded, ArgMaxScratch scratch, int chunkBase, int start, int end) where TKernel : struct
 	{
 		int width = w.Cols;
 		Span<int> sums = stackalloc int[8];
@@ -210,7 +214,7 @@ internal static partial class Int8Gemm
 			int blockEnd = Math.Min(rows, blockStart + rowBlock);
 			int j = start;
 			// A 4 x 2 tile shares activation loads between two output columns as well.
-			if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+			if (typeof(TKernel) == typeof(ArmRows))
 			{
 				for (; j + 1 < end; j += 2)
 				{
@@ -226,8 +230,8 @@ internal static partial class Int8Gemm
 							DotArm4x2(a.Values.AsSpan(r * width, 4 * width), w0, w1, sums);
 						else
 						{
-							Dot(a, r, count, w0, sums, kernel);
-							Dot(a, r, count, w1, sums[4..], kernel);
+							Dot<TKernel>(a, r, count, w0, sums);
+							Dot<TKernel>(a, r, count, w1, sums[4..]);
 						}
 						for (int k = 0; k < count; k++)
 						{
@@ -246,14 +250,14 @@ internal static partial class Int8Gemm
 				var weights = w.Data.AsSpan(row * width, width);
 				float b = preparedBias[row];
 				int shift = 127 * w.RowSums[row];
-				var pairs = RowPairs(w, row, kernel);
+				var pairs = RowPairs<TKernel>(w, row);
 				for (int r = blockStart; r < blockEnd; r += 4)
 				{
 					int count = Math.Min(4, blockEnd - r);
-					Dot(a, r, count, weights, sums, kernel);
+					Dot<TKernel>(a, r, count, weights, sums);
 					for (int k = 0; k < count; k++)
 					{
-						int sum = Avx2.IsSupported && kernel == Int8Kernel.X86 ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
+						int sum = typeof(TKernel) == typeof(X86Rows) ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
 						scratch.Consider(chunkBase + r + k, j, sum * unquant + b, excluded);
 					}
 				}
