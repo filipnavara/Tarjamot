@@ -33,3 +33,10 @@ Kernels depend on the CPU: run the tests with `DOTNET_EnableAVX512=0`, `DOTNET_E
 - Files ported from MPL-2.0 code keep their MPL-2.0 header; list new ports in
   `THIRD-PARTY-NOTICES.md`.
 - Pure .NET: no native code.
+
+## Releasing
+
+Push a `vX.Y.Z` tag. CI packs that version and publishes it to nuget.org with Trusted Publishing
+(no API key in the repository). One-time setup: a nuget.org Trusted Publishing policy for
+`filipnavara/Tarjamot`, workflow file `ci.yml`, environment `nuget`, and the repository secret
+`NUGET_USER` with the nuget.org profile name that owns the policy.

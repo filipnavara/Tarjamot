@@ -1,10 +1,17 @@
 version: 2
 updates:
+  # One pull request per ecosystem and week instead of one per dependency.
   - package-ecosystem: nuget
     directory: /
     schedule:
       interval: weekly
+    groups:
+      nuget:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
