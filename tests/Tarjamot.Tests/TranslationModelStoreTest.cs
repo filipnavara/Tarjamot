@@ -1,7 +1,11 @@
 using System.Net;
 using System.Security.Cryptography;
 using NUnit.Framework;
+#if NET11_0_OR_GREATER
+using System.IO.Compression;
+#else
 using ZstdSharp;
+#endif
 
 namespace Tarjamot.Tests;
 
@@ -66,8 +70,15 @@ public class TranslationModelStoreTest
 
 	static byte[] Compress(byte[] data)
 	{
+#if NET11_0_OR_GREATER
+		var output = new MemoryStream();
+		using (var zstd = new ZstandardStream(output, CompressionMode.Compress, leaveOpen: true))
+			zstd.Write(data);
+		return output.ToArray();
+#else
 		using var compressor = new Compressor();
 		return compressor.Wrap(data).ToArray();
+#endif
 	}
 
 	sealed class FakeServer(Dictionary<string, byte[]> content) : HttpMessageHandler

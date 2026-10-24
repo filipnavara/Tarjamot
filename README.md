@@ -1,8 +1,9 @@
 # Tarjamot
 
 Local machine translation with the Firefox Translations models (Project Bergamot, Marian
-"student" transformers with int8 weights), in pure .NET. No native code. The packages are
-`System.Numerics.Tensors` and `ZstdSharp.Port`, which decompresses the downloads.
+"student" transformers with int8 weights), in pure .NET. No native code. The package builds for
+.NET 10 and .NET 11 and depends on `System.Numerics.Tensors`; the .NET 10 build also uses
+`ZstdSharp.Port` to decompress the downloads, the .NET 11 build the runtime's `ZstandardStream`.
 
 Status: experimental. The API may change before 1.0.
 

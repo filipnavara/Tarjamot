@@ -1,7 +1,11 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+#if NET11_0_OR_GREATER
+using System.IO.Compression;
+#else
 using ZstdSharp;
+#endif
 
 namespace Tarjamot;
 
@@ -89,7 +93,11 @@ public sealed class TranslationModelStore
 		response.EnsureSuccessStatusCode();
 		await using var compressed = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 		await using var counting = new ProgressStream(compressed, onReceived);
+#if NET11_0_OR_GREATER
+		await using var decompressed = new ZstandardStream(counting, CompressionMode.Decompress);
+#else
 		await using var decompressed = new DecompressionStream(counting);
+#endif
 		using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 		long length = 0;
 		await using (var output = File.Create(path))

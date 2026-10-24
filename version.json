@@ -3,5 +3,8 @@
   "version": "0.1",
   "publicReleaseRefSpec": [
     "^refs/tags/v\\d+\\.\\d+\\.\\d+$"
-  ]
+  ],
+  "cloudBuild": {
+    "setVersionVariables": false
+  }
 }

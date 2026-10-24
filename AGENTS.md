@@ -43,6 +43,11 @@ number of commits since it changed. Builds of `main` are prereleases (`0.1.5-g1a
 packs it and publishes it to nuget.org with Trusted Publishing (no API key in the repository).
 Bump `version` in `version.json` to start the next minor version.
 
+The workflow does not use Nerdbank.GitVersioning's version environment variables, and
+`version.json` turns them off (`cloudBuild.setVersionVariables`): with multi-targeting, the
+parallel MSBuild nodes of Nerdbank.GitVersioning 3.10 corrupt `GITHUB_ENV` when they all append
+them, and the runner then fails the build step.
+
 One-time setup: a nuget.org Trusted Publishing policy for `filipnavara/Tarjamot`, workflow file
 `ci.yml`, environment `nuget`, and the repository secret `NUGET_USER` with the nuget.org profile
 name that owns the policy.

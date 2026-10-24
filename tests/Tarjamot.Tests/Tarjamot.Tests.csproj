@@ -6,7 +6,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="ZstdSharp.Port" />
+    <!-- .NET 11 decompresses with the built-in System.IO.Compression.ZstandardStream. -->
+    <PackageReference Include="ZstdSharp.Port" Condition="'$(TargetFramework)' == 'net10.0'" />
   </ItemGroup>
 
   <ItemGroup>
