@@ -102,8 +102,8 @@ public class ModelLoadingTest
 		int outputs = rows?.Length ?? 37;
 		var expected = new float[5 * outputs];
 		var actual = new float[5 * outputs];
-		Int8Gemm.Multiply(activations, 5, full, rows, outputs, 1f / 750f, bias, expected, Int8Kernel.X86, false);
-		Int8Gemm.Multiply(activations, 5, bare, rows, outputs, 1f / 750f, bias, actual, Int8Kernel.X86, false);
+		Int8Gemm.Multiply(activations, 5, full, rows, 1f / 750f, bias, expected, Int8Kernel.X86, false);
+		Int8Gemm.Multiply(activations, 5, bare, rows, 1f / 750f, bias, actual, Int8Kernel.X86, false);
 		Assert.That(actual.Select(BitConverter.SingleToInt32Bits), Is.EqualTo(expected.Select(BitConverter.SingleToInt32Bits)));
 		if (!selected)
 		{
@@ -121,7 +121,7 @@ public class ModelLoadingTest
 		var activations = new QuantizedActivations();
 		Int8Gemm.Quantize(new float[32], 1f, activations, kernel);
 		Assert.Throws<NotSupportedException>(() => Int8Gemm.PrepareBias(embeddings, 1f, null));
-		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, embeddings, null, 20, 1f, new float[20], new float[20], kernel, false));
+		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, embeddings, null, 1f, new float[20], new float[20], kernel, false));
 		Assert.Throws<NotSupportedException>(() => Int8Gemm.MultiplyArgMax(activations, 1, embeddings, 1f, new float[20], -1, new ArgMaxScratch(), kernel, false));
 		// Building the output layer from the embeddings needs only their values.
 		Assert.That(MarianWeights.CreateOutputWeights(embeddings, 1f).HasRowSums, Is.True);
@@ -138,7 +138,7 @@ public class ModelLoadingTest
 		var activations = new QuantizedActivations();
 		Int8Gemm.Quantize(new float[32], 1f, activations, kernel);
 		var bias = Int8Gemm.PrepareBias(weights, 1f, null);
-		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, weights, null, 20, 1f, bias, new float[20], kernel, false));
+		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, weights, null, 1f, bias, new float[20], kernel, false));
 		Assert.Throws<NotSupportedException>(() => Int8Gemm.MultiplyArgMax(activations, 1, weights, 1f, bias, -1, new ArgMaxScratch(), kernel, false));
 	}
 

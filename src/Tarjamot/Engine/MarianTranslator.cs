@@ -16,11 +16,10 @@ namespace Tarjamot.Engine;
 /// A worker: it translates one batch at a time with its own work buffers; the weights are shared
 /// (see <see cref="MarianEngine"/>).
 /// </summary>
-internal sealed record MarianTranslatorOptions(Int8Kernel Kernel, bool Parallel, bool UseShortlist);
+internal sealed record MarianTranslatorOptions(Int8Kernel Kernel, bool Parallel);
 
 internal sealed class MarianTranslator
 {
-	const float LayerNormEpsilon = 1e-6f;
 	const float MaxLengthFactor = 2f;
 
 	readonly MarianWeights weights;
@@ -109,7 +108,9 @@ internal sealed class MarianTranslator
 			DecoderContextBuffers.TransposeKeys(keys, offsets, lengths, contextKeys[l], transposedOffsets, dim);
 		}
 
-		var candidates = options.UseShortlist ? sources.Select(CreateCandidates).ToArray() : null;
+		var candidates = shortlist is { } list
+			? sources.Select(source => list.Generate(source, targetEmbeddings.Rows, sharedVocab: ReferenceEquals(sourceEmbeddings, targetEmbeddings))).ToArray()
+			: null;
 		// SSRU cells start at zero for every batch (Marian's initial recurrent state), so the
 		// reused buffer is cleared.
 		var cells = Ensure(ref this.cells, count * decoderLayers.Length * dim);
@@ -132,7 +133,7 @@ internal sealed class MarianTranslator
 				break;
 
 			var hidden = DecoderStep(active, previous, step, cells, contextKeys, transposedOffsets, contextValues, offsets, lengths, alignments);
-			ReadOnlySpan<int> winners = options.UseShortlist ? [] : ProjectWinners(hidden, active.Count);
+			ReadOnlySpan<int> winners = candidates != null ? [] : ProjectWinners(hidden, active.Count);
 			for (int r = 0; r < active.Count; r++)
 			{
 				int s = active[r];
@@ -174,17 +175,13 @@ internal sealed class MarianTranslator
 			prepared, targetVocab.UnkId, outputWinners, options.Kernel, options.Parallel);
 	}
 
-	int[] CreateCandidates(List<int> source) => options.UseShortlist && shortlist != null
-		? shortlist.Generate(source, targetEmbeddings.Rows, sharedVocab: ReferenceEquals(sourceEmbeddings, targetEmbeddings))
-		: Enumerable.Range(0, targetEmbeddings.Rows).ToArray();
-
-	int ArgMax(ReadOnlySpan<float> logits, int[]? candidates)
+	int ArgMax(ReadOnlySpan<float> logits, int[] candidates)
 	{
 		int best = -1;
 		float bestLogit = float.NegativeInfinity;
 		for (int i = 0; i < logits.Length; i++)
 		{
-			int token = candidates?[i] ?? i;
+			int token = candidates[i];
 			if (token == targetVocab.UnkId)
 				continue;
 			if (logits[i] > bestLogit)
@@ -309,7 +306,7 @@ internal sealed class MarianTranslator
 		{
 			var row = x.AsSpan(t * dim, dim);
 			TensorPrimitives.Add(added.AsSpan(t * dim, dim), row, row);
-			MarianMath.LayerNorm(row, scale.Data, bias.Data, LayerNormEpsilon);
+			MarianMath.LayerNorm(row, scale.Data, bias.Data);
 		}
 	}
 
@@ -337,8 +334,8 @@ internal sealed class MarianTranslator
 				headDim, padded, scale, headScores);
 			var scores0 = headScores.AsSpan(0, keyLength);
 			var scores1 = headScores.AsSpan(padded, keyLength);
-			MarianMath.Softmax(scores0, keyLength);
-			MarianMath.Softmax(scores1, keyLength);
+			MarianMath.Softmax(scores0);
+			MarianMath.Softmax(scores1);
 			if (h == 0 && alignment != null)
 				scores0.CopyTo(alignment);
 			var values = v.AsSpan(valueStart * dim + h * headDim);
@@ -399,7 +396,7 @@ internal sealed class MarianTranslator
 					acc = acc + Vector128.Create(q[queryBase + d]) * Vector128.LoadUnsafe(ref rk, (nuint)(headBase + j + d * padded));
 				(scale128 * acc).StoreUnsafe(ref rs, (nuint)j);
 			}
-			MarianMath.Softmax(headScores.AsSpan(0, keyLength), keyLength);
+			MarianMath.Softmax(headScores.AsSpan(0, keyLength));
 			if (h == 0 && alignment != null)
 				headScores.AsSpan(0, keyLength).CopyTo(alignment);
 			MarianMath.AttentionValues(headScores.AsSpan(0, keyLength),
@@ -419,7 +416,7 @@ internal sealed class MarianTranslator
 		var prepared = matrix.Alpha != 0f
 			? weights.GetPreparedBias(matrix)
 			: Int8Gemm.PrepareBias(matrix, alpha, bias?.Data);
-		Int8Gemm.Multiply(quantized, rows, matrix, weightRows, weightRows?.Length ?? matrix.Rows, 1f / (alpha * matrix.QuantMult), prepared, y, options.Kernel, options.Parallel);
+		Int8Gemm.Multiply(quantized, rows, matrix, weightRows, 1f / (alpha * matrix.QuantMult), prepared, y, options.Kernel, options.Parallel);
 	}
 
 	static float[] Ensure(ref float[] buffer, int size)

@@ -81,7 +81,7 @@ internal sealed class MarianModel
 			switch (headers[i].Type)
 			{
 				case TypeFloat32 when rows == 1:
-					tensors[name] = new Tensor(MemoryMarshal.Cast<byte, float>(item).ToArray(), rows, cols);
+					tensors[name] = new Tensor(MemoryMarshal.Cast<byte, float>(item).ToArray());
 					break;
 				case TypeIntgemm8:
 					matrices[name] = LoadIntgemm8(item, rows, cols, isEmbedding: name.EndsWith("Wemb"));
@@ -173,7 +173,7 @@ internal sealed class MarianModel
 						throw new InvalidDataException("Invalid Marian float tensor length.");
 					var values = new float[headers[i].DataLength / sizeof(float)];
 					stream.ReadExactly(MemoryMarshal.AsBytes(values.AsSpan()));
-					tensors[name] = new Tensor(values, rows, cols);
+					tensors[name] = new Tensor(values);
 					break;
 				case TypeIntgemm8:
 					if (rows < 0 || cols < 0 || checked((long)rows * cols + sizeof(float)) > headers[i].DataLength)

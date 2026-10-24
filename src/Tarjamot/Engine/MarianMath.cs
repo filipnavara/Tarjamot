@@ -52,13 +52,14 @@ internal static class MarianMath
 
 	/// <summary>
 	/// Marian's CPU Softmax. Marian takes the 4-lane path (lane-wise max and sums, exp_ps) when the
-	/// row length is a multiple of 4, and the scalar path (expf) otherwise. In a padded batch the row
-	/// length is the batch's maximum length, so it is passed separately; padded entries are masked
-	/// to exp() ~ 0 and do not change the sums.
+	/// row length is a multiple of 4, and the scalar path (expf) otherwise. This is the unpadded
+	/// softmax of one sentence: in a padded batch Marian chooses the path by the batch's maximum
+	/// length instead. (The masked entries themselves add exp_ps at its lower clamp, ~1e-38, to sums
+	/// of at least 1, so they never change the result.)
 	/// </summary>
-	public static void Softmax(Span<float> x, int rowLength)
+	public static void Softmax(Span<float> x)
 	{
-		if (rowLength % 4 != 0)
+		if (x.Length % 4 != 0)
 		{
 			float max = x[0];
 			for (int i = 1; i < x.Length; i++)
@@ -76,13 +77,10 @@ internal static class MarianMath
 
 		int vectors = x.Length / 4;
 		ref float rx = ref MemoryMarshal.GetReference(x);
-		// Lane-wise maximum; a partial last vector only has its valid lanes compared.
 		var maxLanes = Vector128.Create(float.NegativeInfinity);
 		for (int v = 0; v < vectors; v++)
 			maxLanes = Vector128.Max(maxLanes, Vector128.LoadUnsafe(ref rx, (nuint)(v * 4)));
 		float maxAll = MathF.Max(MathF.Max(maxLanes[0], maxLanes[1]), MathF.Max(maxLanes[2], maxLanes[3]));
-		for (int i = vectors * 4; i < x.Length; i++)
-			maxAll = MathF.Max(maxAll, x[i]);
 		var maxVector = Vector128.Create(maxAll);
 		var sums = Vector128<float>.Zero;
 		for (int v = 0; v < vectors; v++)
@@ -90,20 +88,6 @@ internal static class MarianMath
 			var e = ExpPs(Vector128.LoadUnsafe(ref rx, (nuint)(v * 4)) - maxVector);
 			e.StoreUnsafe(ref rx, (nuint)(v * 4));
 			sums += e;
-		}
-		// Padded (masked) entries become exp_ps at its lower clamp, a tiny constant, which Marian
-		// still adds to the lane sums after the real entries.
-		float padded = ExpPs(-88.3762626647949f);
-		for (int i = vectors * 4; i < rowLength; i++)
-		{
-			int lane = i % 4;
-			float e = padded;
-			if (i < x.Length)
-			{
-				e = ExpPs(x[i] - maxAll);
-				x[i] = e;
-			}
-			sums = sums.WithElement(lane, sums[lane] + e);
 		}
 		float total = 0f;
 		total += sums[0];
@@ -113,8 +97,6 @@ internal static class MarianMath
 		var totalVector = Vector128.Create(total);
 		for (int v = 0; v < vectors; v++)
 			(Vector128.LoadUnsafe(ref rx, (nuint)(v * 4)) / totalVector).StoreUnsafe(ref rx, (nuint)(v * 4));
-		for (int i = vectors * 4; i < x.Length; i++)
-			x[i] = x[i] / total;
 	}
 
 	/// <summary>
@@ -460,8 +442,10 @@ internal static class MarianMath
 		}
 	}
 
+	const float LayerNormEpsilon = 1e-6f;
+
 	/// <summary>Marian's LayerNormalizationImpl: sequential sums, then alpha * ((x - mean) / sigma) + beta.</summary>
-	public static void LayerNorm(Span<float> row, ReadOnlySpan<float> scale, ReadOnlySpan<float> bias, float epsilon)
+	public static void LayerNorm(Span<float> row, ReadOnlySpan<float> scale, ReadOnlySpan<float> bias)
 	{
 		float sum = 0f;
 		for (int i = 0; i < row.Length; i++)
@@ -473,7 +457,7 @@ internal static class MarianMath
 			float e = row[i] - mean;
 			sqSum += e * e;
 		}
-		float sigma = MathF.Sqrt(sqSum / row.Length + epsilon);
+		float sigma = MathF.Sqrt(sqSum / row.Length + LayerNormEpsilon);
 
 		ref float r = ref MemoryMarshal.GetReference(row);
 		ref float s = ref MemoryMarshal.GetReference(scale);

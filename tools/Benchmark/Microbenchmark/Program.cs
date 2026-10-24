@@ -101,7 +101,7 @@ static class Benchmarks
 					if (argMax)
 						Int8Gemm.MultiplyArgMax(activations, rows, matrix, 1f / 4000f, prepared, 1, scratch, kernel, false);
 					else
-						Int8Gemm.Multiply(activations, rows, matrix, null, outputs, 1f / 4000f, prepared, y, kernel, false);
+						Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, y, kernel, false);
 				}, 0.3, seconds);
 				Console.WriteLine($"{name,-9} w={width,4} o={outputs,5} rows={rows,3}: {(double)rows * width * outputs / nanoseconds,6:F1} GMAC/s");
 			}
