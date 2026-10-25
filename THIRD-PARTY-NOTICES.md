@@ -79,12 +79,13 @@ detection; NTextCat itself stores profiles as XML.
 
 ## Wikipedia (CC BY-SA 4.0)
 
-`src/Tarjamot.LanguageIdentification.Profiles/wikipedia.dat`, embedded in the
-Tarjamot.LanguageIdentification.Profiles package, is derived from the text of Wikipedia articles
+`src/Tarjamot.LanguageIdentification.Profiles/wikipedia.dat`, and `wikipedia.tables` written from
+it and embedded in the Tarjamot.LanguageIdentification.Profiles package, are derived from the text of Wikipedia articles
 by Wikipedia contributors (https://www.wikipedia.org), licensed under the Creative Commons
 Attribution-ShareAlike 4.0 International License
 (https://creativecommons.org/licenses/by-sa/4.0/). The text was reduced to the counts of the most
-frequent character n-grams of each language, and the profile is licensed under CC BY-SA 4.0 too.
+frequent character n-grams of each language, and the profile and the tables are licensed under
+CC BY-SA 4.0 too.
 The package's license expression is `MIT AND CC-BY-SA-4.0`.
 
 ## Marian (MIT)

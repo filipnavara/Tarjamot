@@ -18,7 +18,9 @@ if (ranking.Length > 0)
 ```
 
 - All languages share one sorted table of n-grams packed into 64-bit keys, with each language's
-  log-count stored in a byte. eM Client's 45-language profile, built from NTextCat's, takes about
+  log-count stored in a byte. `WriteTables` writes these tables and `LoadTables` uses them in place
+  from any `ReadOnlyMemory<byte>`, for example an embedded resource, without copying them;
+  `Identify(text, destination)` writes the ranking to a span without allocating. eM Client's 45-language profile, built from NTextCat's, takes about
   0.5 MB in memory against about 8 MB with NTextCat's own data structures, and text is identified without allocating per n-gram.
 - The scores are NTextCat's naive Bayes with add-one smoothing, up to the byte rounding.
 - The Unicode scripts of the text limit the candidates first. A language that is the only one
@@ -32,6 +34,7 @@ training text, and `tools/LanguageProfiles` in the repository builds one from Wi
 ```
 dotnet run --project tools/LanguageProfiles -c Release -- download corpus en de cs zh-Hans zh-Hant
 dotnet run --project tools/LanguageProfiles -c Release -- build corpus profiles.dat
+dotnet run --project tools/LanguageProfiles -c Release -- tables profiles.dat profiles.tables
 ```
 
 `download` takes random Wikipedia articles until each language has 500,000 characters (at most

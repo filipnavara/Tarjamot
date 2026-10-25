@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Tarjamot.LanguageIdentification;
@@ -15,23 +18,26 @@ namespace Tarjamot.LanguageIdentification;
 ///
 /// Before scoring, the input's Unicode scripts restrict the candidate languages. Languages that are the only ones
 /// written in their script (Greek, Hebrew, Thai, ...) are decided by the script alone and their n-grams are dropped.
+///
+/// All of it is kept in one block of memory in the format of <see cref="WriteTables"/>, which
+/// <see cref="LoadTables"/> uses in place, so tables embedded in an assembly are not copied to the heap.
 /// </remarks>
 public sealed class LanguageIdentifier
 {
 	private const double PrimaryScriptShare = 0.2;
 	private const double MinimumCoverage = 0.5;
 
+	// The tables: a header, the per-language values, the n-gram tables and the language codes, little-endian. The
+	// offsets are multiples of 8 within the tables, but the tables themselves may start anywhere, so every value is
+	// read unaligned.
+	private const uint TablesMagic = 0x494C4A54; // "TJLI"
+	private const int TablesVersion = 1;
+	private const int HeaderSize = 40;
+
+	private readonly ReadOnlyMemory<byte> tables;
+	private readonly TablesLayout layout;
 	private readonly string[] languages;
-	private readonly ulong[] keys;
-	private readonly int[] postingStarts;
-	private readonly byte[] postingLanguages;
-	private readonly byte[] postingWeights;
 	private readonly double weightStep;
-	private readonly double[] biases;
-	private readonly double[] penalties;
-	private readonly double[] representedTotals;
-	private readonly ScriptSet[] primaryScripts;
-	private readonly bool[] decidedByScript;
 
 	public int MaxNGramLength { get; }
 
@@ -41,85 +47,49 @@ public sealed class LanguageIdentifier
 	public int MaximumSizeOfDistribution { get; }
 
 	/// <summary>
-	/// Language codes from the profile (for example "en" or "zh"), indexed by the language numbers returned from <see cref="Identify"/>.
+	/// Language codes from the profile (for example "en" or "zh"), indexed by the language numbers returned from <see cref="Identify(ReadOnlySpan{char})"/>.
 	/// </summary>
 	public IReadOnlyList<string> Languages => languages;
 
 	/// <summary>
-	/// Approximate number of bytes held by the lookup tables.
+	/// Number of bytes of the tables (see <see cref="WriteTables"/>).
 	/// </summary>
-	public long TableSize =>
-		keys.Length * sizeof(ulong) + postingStarts.Length * sizeof(int) + postingLanguages.Length + postingWeights.Length;
+	public long TableSize => tables.Length;
 
-	private LanguageIdentifier(LanguageProfile[] profiles, int maxNGramLength, int maximumSizeOfDistribution, bool dropScriptDecidedLanguages)
+	private LanguageIdentifier(ReadOnlyMemory<byte> tables)
 	{
-		if (maxNGramLength is < 1 or > 4)
-			throw new ArgumentOutOfRangeException(nameof(maxNGramLength), "Only n-grams of 1 to 4 characters fit into the packed key");
-		if (profiles.Length > byte.MaxValue)
-			throw new ArgumentException("Too many languages", nameof(profiles));
+		var data = tables.Span;
+		if (data.Length < HeaderSize || BinaryPrimitives.ReadUInt32LittleEndian(data) != TablesMagic)
+			throw new InvalidDataException("The data are not language identification tables.");
+		if (BinaryPrimitives.ReadInt32LittleEndian(data[4..]) != TablesVersion)
+			throw new InvalidDataException("Unsupported version of the language identification tables.");
 
-		MaxNGramLength = maxNGramLength;
-		MaximumSizeOfDistribution = maximumSizeOfDistribution;
-		languages = profiles.Select(p => p.Language).ToArray();
-		primaryScripts = profiles.Select(GetPrimaryScripts).ToArray();
-		decidedByScript = new bool[profiles.Length];
-		if (dropScriptDecidedLanguages)
+		MaxNGramLength = BinaryPrimitives.ReadInt32LittleEndian(data[8..]);
+		MaximumSizeOfDistribution = BinaryPrimitives.ReadInt32LittleEndian(data[12..]);
+		int languageCount = BinaryPrimitives.ReadInt32LittleEndian(data[16..]);
+		int keyCount = BinaryPrimitives.ReadInt32LittleEndian(data[20..]);
+		int postingCount = BinaryPrimitives.ReadInt32LittleEndian(data[24..]);
+		weightStep = BinaryPrimitives.ReadDoubleLittleEndian(data[32..]);
+		if (MaxNGramLength is < 1 or > 4 || languageCount is < 0 or > byte.MaxValue || keyCount < 0 || postingCount < 0)
+			throw new InvalidDataException("Invalid language identification tables.");
+
+		layout = TablesLayout.Of(languageCount, keyCount, postingCount);
+		if (layout.Codes > data.Length
+			|| BinaryPrimitives.ReadInt32LittleEndian(data[layout.PostingStarts..]) != 0
+			|| BinaryPrimitives.ReadInt32LittleEndian(data[(layout.PostingStarts + keyCount * sizeof(int))..]) != postingCount)
+			throw new InvalidDataException("Invalid language identification tables.");
+
+		languages = new string[languageCount];
+		int position = layout.Codes;
+		for (int i = 0; i < languageCount; i++)
 		{
-			for (int i = 0; i < profiles.Length; i++)
-				decidedByScript[i] = primaryScripts[i] != ScriptSet.None && IsScriptUnique(i);
+			if (position >= data.Length || position + 1 + data[position] > data.Length)
+				throw new InvalidDataException("Invalid language identification tables.");
+			int length = data[position];
+			languages[i] =Encoding.UTF8.GetString(data.Slice(position + 1, length));
+			position += 1 + length;
 		}
-
-		// Same quantities as NaiveBayesClassifier with kSmoothFactor = 1.
-		double globalTotal = profiles.Sum(p => (double)p.TotalCountWithNoise);
-		double globalDistinct = profiles.Sum(p => (double)p.DistinctCountWithNoise);
-		biases = profiles.Select(p => Math.Log(p.TotalCountWithNoise) - Math.Log(globalTotal)).ToArray();
-		penalties = profiles.Select(p => Math.Log(p.TotalCountWithNoise + globalDistinct)).ToArray();
-		representedTotals = profiles.Select(p => (double)p.RepresentedCount).ToArray();
-
-		var postings = new List<(ulong Key, byte Language, long Count)>();
-		for (int i = 0; i < profiles.Length; i++)
-		{
-			if (decidedByScript[i])
-				continue;
-			foreach (var (ngram, count) in profiles[i].NGrams)
-			{
-				if (TryPackKey(ngram, out var key))
-					postings.Add((key, (byte)i, count));
-			}
-		}
-		postings.Sort((a, b) => a.Key != b.Key ? a.Key.CompareTo(b.Key) : a.Language.CompareTo(b.Language));
-
-		double maxWeight = postings.Count > 0 ? postings.Max(p => Math.Log(p.Count + 1)) : 1;
-		weightStep = maxWeight / byte.MaxValue;
-
-		var keyList = new List<ulong>();
-		var startList = new List<int>();
-		postingLanguages = new byte[postings.Count];
-		postingWeights = new byte[postings.Count];
-		for (int i = 0; i < postings.Count; i++)
-		{
-			var (key, language, count) = postings[i];
-			if (keyList.Count == 0 || keyList[^1] != key)
-			{
-				keyList.Add(key);
-				startList.Add(i);
-			}
-			postingLanguages[i] = language;
-			postingWeights[i] = (byte)Math.Clamp(Math.Round(Math.Log(count + 1) / weightStep), 1, byte.MaxValue);
-		}
-		startList.Add(postings.Count);
-		keys = keyList.ToArray();
-		postingStarts = startList.ToArray();
-
-		bool IsScriptUnique(int index)
-		{
-			for (int j = 0; j < primaryScripts.Length; j++)
-			{
-				if (j != index && (primaryScripts[j] & primaryScripts[index]) != 0)
-					return false;
-			}
-			return true;
-		}
+		this.tables = tables[..position];
 	}
 
 	/// <summary>
@@ -135,33 +105,60 @@ public sealed class LanguageIdentifier
 		using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
 		int maximumSizeOfDistribution = reader.ReadInt32();
 		int maxNGramLength = reader.ReadInt32();
+		if (maxNGramLength is < 1 or > 4)
+			throw new ArgumentOutOfRangeException(nameof(stream), "Only n-grams of 1 to 4 characters fit into the packed key");
 		var profiles = new LanguageProfile[reader.ReadInt32()];
+		if (profiles.Length > byte.MaxValue)
+			throw new ArgumentException("Too many languages", nameof(stream));
+
+		var postings = new List<Posting>();
+		Span<char> buffer = stackalloc char[byte.MaxValue];
+		Span<long> scriptCounts = stackalloc long[ScriptCount];
 		for (int i = 0; i < profiles.Length; i++)
 		{
 			string iso639_2T = reader.ReadString();
 			string iso639_3 = reader.ReadString();
 			long totalNoise = reader.ReadInt32();
 			long distinctNoise = reader.ReadInt32();
-			var ngrams = new List<(string, long)>();
 			long represented = 0;
+			long distinct = 0;
+			scriptCounts.Clear();
 			byte length;
 			while ((length = reader.ReadByte()) > 0)
 			{
-				var buffer = new char[length];
+				var ngram = buffer[..length];
 				int count = reader.ReadInt32();
+				postings.EnsureCapacity(postings.Count + count);
 				for (int j = 0; j < count; j++)
 				{
-					reader.Read(buffer, 0, length);
+					reader.Read(ngram);
 					int occurrences = reader.ReadInt32();
-					ngrams.Add((new string(buffer), occurrences));
 					represented += occurrences;
+					distinct++;
+					if (length == 1)
+						scriptCounts[(int)GetScript(ngram[0])] += occurrences;
+					if (TryPackKey(ngram, out var key))
+						postings.Add(new Posting(key, (byte)i, occurrences));
 				}
 			}
 			var language = string.IsNullOrEmpty(iso639_3) ? iso639_2T : iso639_3;
-			profiles[i] = new LanguageProfile(language, ngrams, represented, represented + totalNoise, ngrams.Count + distinctNoise);
+			profiles[i] = new LanguageProfile(language, GetPrimaryScripts(scriptCounts), represented, represented + totalNoise, distinct + distinctNoise);
 		}
-		return new LanguageIdentifier(profiles, maxNGramLength, maximumSizeOfDistribution, dropScriptDecidedLanguages);
+		return new LanguageIdentifier(BuildTables(profiles, postings, maxNGramLength, maximumSizeOfDistribution, dropScriptDecidedLanguages));
 	}
+
+	/// <summary>
+	/// Uses tables written by <see cref="WriteTables"/> in place, without copying them: the memory must not change
+	/// while the identifier is used. Only the language codes are allocated.
+	/// </summary>
+	public static LanguageIdentifier LoadTables(ReadOnlyMemory<byte> tables) => new(tables);
+
+	/// <summary>
+	/// Writes the tables of the identifier for <see cref="LoadTables"/>. They hold only what scoring needs: the
+	/// n-grams of the languages decided by their script are not included unless the profile was loaded with
+	/// <c>dropScriptDecidedLanguages: false</c>.
+	/// </summary>
+	public void WriteTables(Stream stream) => stream.Write(tables.Span);
 
 	/// <summary>
 	/// Returns candidate languages ordered from the most likely, with the naive Bayes log-score
@@ -169,33 +166,64 @@ public sealed class LanguageIdentifier
 	/// </summary>
 	public (int Language, double Score)[] Identify(ReadOnlySpan<char> text)
 	{
-		var inputScripts = CountScripts(text);
-		var candidates = GetCandidates(inputScripts);
-		if (candidates.Count == 0)
-			return [];
-		if (candidates.Count == 1 && decidedByScript[candidates[0]])
-			return [(candidates[0], double.PositiveInfinity)];
+		Span<(int Language, double Score)> result = stackalloc (int, double)[languages.Length];
+		return result[..Identify(text, result)].ToArray();
+	}
 
-		var sums = new long[languages.Length];
+	/// <summary>
+	/// Writes candidate languages ordered from the most likely to <paramref name="destination"/>, like
+	/// <see cref="Identify(ReadOnlySpan{char})"/> without allocating, and returns their number. The destination
+	/// needs at most <see cref="Languages"/>.Count elements.
+	/// </summary>
+	public int Identify(ReadOnlySpan<char> text, Span<(int Language, double Score)> destination)
+	{
+		var data = tables.Span;
+		Span<int> inputScripts = stackalloc int[ScriptCount];
+		CountScripts(text, inputScripts);
+		Span<int> candidates = stackalloc int[languages.Length];
+		int candidateCount = GetCandidates(data, inputScripts, candidates);
+		if (candidateCount > destination.Length)
+			throw new ArgumentException("The destination is shorter than the number of candidate languages.", nameof(destination));
+		if (candidateCount == 0)
+			return 0;
+		if (candidateCount == 1 && IsDecidedByScript(data, candidates[0]))
+		{
+			destination[0] = (candidates[0], double.PositiveInfinity);
+			return 1;
+		}
+
+		Span<long> sums = stackalloc long[languages.Length];
+		int featureCount = SumWeights(data, text, sums);
+		for (int i = 0; i < candidateCount; i++)
+		{
+			int language = candidates[i];
+			destination[i] = (language, ReadDouble(data, layout.Biases, language) - featureCount * ReadDouble(data, layout.Penalties, language) + sums[language] * weightStep);
+		}
+		destination[..candidateCount].Sort(static (a, b) => b.Score.CompareTo(a.Score));
+		return candidateCount;
+	}
+
+	/// <summary>
+	/// Adds the weights of the text's n-grams to the sums of the languages and returns the number of n-grams.
+	/// </summary>
+	private int SumWeights(ReadOnlySpan<byte> data, ReadOnlySpan<char> text, Span<long> sums)
+	{
+		var keys = data.Slice(layout.Keys, layout.KeyCount * sizeof(ulong));
+		var postingStarts = data[layout.PostingStarts..];
+		var postingLanguages = data[layout.PostingLanguages..];
+		var postingWeights = data[layout.PostingWeights..];
 		int featureCount = 0;
 		foreach (var key in new NGramEnumerator(text, MaxNGramLength))
 		{
 			featureCount++;
-			int index = Array.BinarySearch(keys, key);
+			int index = FindKey(keys, key);
 			if (index < 0)
 				continue;
-			for (int p = postingStarts[index]; p < postingStarts[index + 1]; p++)
+			int end = ReadInt32(postingStarts, index + 1);
+			for (int p = ReadInt32(postingStarts, index); p < end; p++)
 				sums[postingLanguages[p]] += postingWeights[p];
 		}
-
-		var result = new (int Language, double Score)[candidates.Count];
-		for (int i = 0; i < candidates.Count; i++)
-		{
-			int language = candidates[i];
-			result[i] = (language, biases[language] - featureCount * penalties[language] + sums[language] * weightStep);
-		}
-		Array.Sort(result, (a, b) => b.Score.CompareTo(a.Score));
-		return result;
+		return featureCount;
 	}
 
 	/// <summary>
@@ -204,7 +232,8 @@ public sealed class LanguageIdentifier
 	/// </summary>
 	public double CalculateDistance(int language, ReadOnlySpan<char> text)
 	{
-		if (decidedByScript[language])
+		var data = tables.Span;
+		if (IsDecidedByScript(data, language))
 			return 0;
 
 		var counts = new Dictionary<ulong, int>();
@@ -217,17 +246,23 @@ public sealed class LanguageIdentifier
 		var profileList = profile.ToList();
 		double total = profileList.Sum(kv => (double)kv.Value);
 
+		var keys = data.Slice(layout.Keys, layout.KeyCount * sizeof(ulong));
+		var postingStarts = data[layout.PostingStarts..];
+		var postingLanguages = data[layout.PostingLanguages..];
+		var postingWeights = data[layout.PostingWeights..];
+		double representedTotal = ReadDouble(data, layout.RepresentedTotals, language);
 		double overlap = 0;
 		foreach (var (key, count) in profileList)
 		{
-			int index = Array.BinarySearch(keys, key);
+			int index = FindKey(keys, key);
 			if (index < 0)
 				continue;
-			for (int p = postingStarts[index]; p < postingStarts[index + 1]; p++)
+			int end = ReadInt32(postingStarts, index + 1);
+			for (int p = ReadInt32(postingStarts, index); p < end; p++)
 			{
 				if (postingLanguages[p] != language)
 					continue;
-				double languageFrequency = (Math.Exp(postingWeights[p] * weightStep) - 1) / representedTotals[language];
+				double languageFrequency = (Math.Exp(postingWeights[p] * weightStep) - 1) / representedTotal;
 				overlap += Math.Min(languageFrequency, count / total);
 				break;
 			}
@@ -256,48 +291,156 @@ public sealed class LanguageIdentifier
 		return new string(buffer[..length]);
 	}
 
-	private List<int> GetCandidates(Span<int> inputScripts)
+	private static byte[] BuildTables(LanguageProfile[] profiles, List<Posting> postings, int maxNGramLength, int maximumSizeOfDistribution, bool dropScriptDecidedLanguages)
+	{
+		var decidedByScript = new bool[profiles.Length];
+		if (dropScriptDecidedLanguages)
+		{
+			for (int i = 0; i < profiles.Length; i++)
+				decidedByScript[i] = profiles[i].PrimaryScripts != ScriptSet.None && IsScriptUnique(i);
+			postings.RemoveAll(p => decidedByScript[p.Language]);
+		}
+		postings.Sort((a, b) => a.Key != b.Key ? a.Key.CompareTo(b.Key) : a.Language.CompareTo(b.Language));
+
+		int keyCount = 0;
+		for (int i = 0; i < postings.Count; i++)
+		{
+			if (i == 0 || postings[i - 1].Key != postings[i].Key)
+				keyCount++;
+		}
+		var codes = profiles.Select(p => Encoding.UTF8.GetBytes(p.Language)).ToArray();
+		if (codes.Any(c => c.Length > byte.MaxValue))
+			throw new ArgumentException("A language code is too long.");
+		var layout = TablesLayout.Of(profiles.Length, keyCount, postings.Count);
+		var tables = new byte[layout.Codes + codes.Sum(c => 1 + c.Length)];
+		var data = tables.AsSpan();
+
+		double maxWeight = postings.Count > 0 ? postings.Max(p => Math.Log(p.Count + 1L)) : 1;
+		double weightStep = maxWeight / byte.MaxValue;
+		BinaryPrimitives.WriteUInt32LittleEndian(data, TablesMagic);
+		BinaryPrimitives.WriteInt32LittleEndian(data[4..], TablesVersion);
+		BinaryPrimitives.WriteInt32LittleEndian(data[8..], maxNGramLength);
+		BinaryPrimitives.WriteInt32LittleEndian(data[12..], maximumSizeOfDistribution);
+		BinaryPrimitives.WriteInt32LittleEndian(data[16..], profiles.Length);
+		BinaryPrimitives.WriteInt32LittleEndian(data[20..], keyCount);
+		BinaryPrimitives.WriteInt32LittleEndian(data[24..], postings.Count);
+		BinaryPrimitives.WriteDoubleLittleEndian(data[32..], weightStep);
+
+		// Same quantities as NaiveBayesClassifier with kSmoothFactor = 1.
+		double globalTotal = profiles.Sum(p => (double)p.TotalCountWithNoise);
+		double globalDistinct = profiles.Sum(p => (double)p.DistinctCountWithNoise);
+		for (int i = 0; i < profiles.Length; i++)
+		{
+			var profile = profiles[i];
+			BinaryPrimitives.WriteDoubleLittleEndian(data[(layout.Biases + i * sizeof(double))..], Math.Log(profile.TotalCountWithNoise) - Math.Log(globalTotal));
+			BinaryPrimitives.WriteDoubleLittleEndian(data[(layout.Penalties + i * sizeof(double))..], Math.Log(profile.TotalCountWithNoise + globalDistinct));
+			BinaryPrimitives.WriteDoubleLittleEndian(data[(layout.RepresentedTotals + i * sizeof(double))..], profile.RepresentedCount);
+			BinaryPrimitives.WriteInt32LittleEndian(data[(layout.PrimaryScripts + i * sizeof(int))..], (int)profile.PrimaryScripts);
+			data[layout.DecidedByScript + i] = decidedByScript[i] ? (byte)1 : (byte)0;
+		}
+
+		int keyIndex = 0;
+		for (int i = 0; i < postings.Count; i++)
+		{
+			var (key, language, count) = postings[i];
+			if (i == 0 || postings[i - 1].Key != key)
+			{
+				BinaryPrimitives.WriteUInt64LittleEndian(data[(layout.Keys + keyIndex * sizeof(ulong))..], key);
+				BinaryPrimitives.WriteInt32LittleEndian(data[(layout.PostingStarts + keyIndex * sizeof(int))..], i);
+				keyIndex++;
+			}
+			data[layout.PostingLanguages + i] = language;
+			data[layout.PostingWeights + i] = (byte)Math.Clamp(Math.Round(Math.Log(count + 1L) / weightStep), 1, byte.MaxValue);
+		}
+		BinaryPrimitives.WriteInt32LittleEndian(data[(layout.PostingStarts + keyCount * sizeof(int))..], postings.Count);
+
+		int position = layout.Codes;
+		foreach (var code in codes)
+		{
+			data[position] = (byte)code.Length;
+			code.CopyTo(data[(position + 1)..]);
+			position += 1 + code.Length;
+		}
+		return tables;
+
+		bool IsScriptUnique(int index)
+		{
+			for (int j = 0; j < profiles.Length; j++)
+			{
+				if (j != index && (profiles[j].PrimaryScripts & profiles[index].PrimaryScripts) != 0)
+					return false;
+			}
+			return true;
+		}
+	}
+
+	private static int FindKey(ReadOnlySpan<byte> keys, ulong key)
+	{
+		// The search stays within the span, so it reads without bounds checks.
+		ref byte start = ref MemoryMarshal.GetReference(keys);
+		int low = 0;
+		int high = keys.Length / sizeof(ulong) - 1;
+		while (low <= high)
+		{
+			int middle = (int)((uint)(low + high) >> 1);
+			ulong value = Unsafe.ReadUnaligned<ulong>(ref Unsafe.Add(ref start, middle * sizeof(ulong)));
+			if (!BitConverter.IsLittleEndian)
+				value = BinaryPrimitives.ReverseEndianness(value);
+			if (value == key)
+				return middle;
+			if (value < key)
+				low = middle + 1;
+			else
+				high = middle - 1;
+		}
+		return -1;
+	}
+
+	private static int ReadInt32(ReadOnlySpan<byte> data, int index) =>
+		BinaryPrimitives.ReadInt32LittleEndian(data[(index * sizeof(int))..]);
+
+	private static double ReadDouble(ReadOnlySpan<byte> data, int offset, int index) =>
+		BinaryPrimitives.ReadDoubleLittleEndian(data[(offset + index * sizeof(double))..]);
+
+	private bool IsDecidedByScript(ReadOnlySpan<byte> data, int language) => data[layout.DecidedByScript + language] != 0;
+
+	private int GetCandidates(ReadOnlySpan<byte> data, ReadOnlySpan<int> inputScripts, Span<int> candidates)
 	{
 		int letters = 0;
 		foreach (var count in inputScripts)
 			letters += count;
 
-		var candidates = new List<int>();
+		int candidateCount = 0;
 		if (letters == 0)
-			return candidates;
+			return candidateCount;
 
 		double bestCoverage = MinimumCoverage;
 		for (int i = 0; i < languages.Length; i++)
 		{
+			var primaryScripts = (ScriptSet)BinaryPrimitives.ReadInt32LittleEndian(data[(layout.PrimaryScripts + i * sizeof(int))..]);
 			int covered = 0;
 			for (int s = 1; s < inputScripts.Length; s++)
 			{
-				if ((primaryScripts[i] & (ScriptSet)(1 << s)) != 0)
+				if ((primaryScripts & (ScriptSet)(1 << s)) != 0)
 					covered += inputScripts[s];
 			}
 			double coverage = covered / (double)letters;
 			if (coverage > bestCoverage + 1e-9)
 			{
 				bestCoverage = coverage;
-				candidates.Clear();
+				candidateCount = 0;
 			}
 			if (coverage >= bestCoverage - 1e-9)
-				candidates.Add(i);
+				candidates[candidateCount++] = i;
 		}
-		return candidates;
+		return candidateCount;
 	}
 
-	private static ScriptSet GetPrimaryScripts(LanguageProfile profile)
+	private static ScriptSet GetPrimaryScripts(ReadOnlySpan<long> counts)
 	{
-		Span<long> counts = stackalloc long[ScriptCount];
 		long total = 0;
-		foreach (var (ngram, count) in profile.NGrams)
-		{
-			if (ngram.Length != 1)
-				continue;
-			counts[(int)GetScript(ngram[0])] += count;
+		foreach (var count in counts)
 			total += count;
-		}
 
 		var result = ScriptSet.None;
 		for (int s = 1; s < ScriptCount; s++)
@@ -308,19 +451,17 @@ public sealed class LanguageIdentifier
 		return result;
 	}
 
-	private static int[] CountScripts(ReadOnlySpan<char> text)
+	private static void CountScripts(ReadOnlySpan<char> text, Span<int> counts)
 	{
-		var counts = new int[ScriptCount];
 		foreach (var c in text)
 		{
 			if (char.IsLetter(c))
 				counts[(int)GetScript(c)]++;
 		}
 		counts[(int)Script.Other] = 0;
-		return counts;
 	}
 
-	private static bool TryPackKey(string ngram, out ulong key)
+	private static bool TryPackKey(ReadOnlySpan<char> ngram, out ulong key)
 	{
 		key = 0;
 		if (ngram.Length is 0 or > 4)
@@ -330,10 +471,42 @@ public sealed class LanguageIdentifier
 		return true;
 	}
 
-	private sealed record LanguageProfile(string Language, List<(string NGram, long Count)> NGrams, long RepresentedCount, long TotalCountWithNoise, long DistinctCountWithNoise);
+	private sealed record LanguageProfile(string Language, ScriptSet PrimaryScripts, long RepresentedCount, long TotalCountWithNoise, long DistinctCountWithNoise);
 
-	private const int ScriptCount = (int)Script.Han + 1;
+	private readonly record struct Posting(ulong Key, byte Language, int Count);
 
+	/// <summary>
+	/// Offsets of the parts of the tables, which follow the header: the bias, penalty and represented n-gram count
+	/// (doubles), the primary scripts (an int) and whether the script decides the language (a byte) of each language,
+	/// then, 8-aligned, the sorted keys, the start of each key's postings (ints, one more than the keys), the
+	/// postings' languages and weights (bytes), and the language codes (a byte length and UTF-8).
+	/// </summary>
+	private readonly record struct TablesLayout(int KeyCount, int Biases, int Penalties, int RepresentedTotals, int PrimaryScripts, int DecidedByScript,
+		int Keys, int PostingStarts, int PostingLanguages, int PostingWeights, int Codes)
+	{
+		public static TablesLayout Of(int languageCount, int keyCount, int postingCount)
+		{
+			long biases = HeaderSize;
+			long penalties = biases + (long)languageCount * sizeof(double);
+			long representedTotals = penalties + (long)languageCount * sizeof(double);
+			long primaryScripts = representedTotals + (long)languageCount * sizeof(double);
+			long decidedByScript = primaryScripts + (long)languageCount * sizeof(int);
+			long keys = (decidedByScript + languageCount + 7) & ~7L;
+			long postingStarts = keys + (long)keyCount * sizeof(ulong);
+			long postingLanguages = postingStarts + ((long)keyCount + 1) * sizeof(int);
+			long postingWeights = postingLanguages + postingCount;
+			long codes = postingWeights + postingCount;
+			if (codes > Array.MaxLength)
+				throw new InvalidDataException("The language identification tables are too large.");
+			return new(keyCount, (int)biases, (int)penalties, (int)representedTotals, (int)primaryScripts, (int)decidedByScript,
+				(int)keys, (int)postingStarts, (int)postingLanguages, (int)postingWeights, (int)codes);
+		}
+	}
+
+	private const int ScriptCount = (int)Script.Telugu + 1;
+
+	// The tables store the primary scripts as bits of these numbers: add new scripts at the end and change
+	// ScriptCount.
 	private enum Script
 	{
 		Other,
@@ -351,6 +524,7 @@ public sealed class LanguageIdentifier
 		Hangul,
 		Kana,
 		Han,
+		Telugu,
 	}
 
 	[Flags]
@@ -370,6 +544,7 @@ public sealed class LanguageIdentifier
 		>= '\u0900' and <= '\u097F' => Script.Devanagari,
 		>= '\u0980' and <= '\u09FF' => Script.Bengali,
 		>= '\u0B80' and <= '\u0BFF' => Script.Tamil,
+		>= '\u0C00' and <= '\u0C7F' => Script.Telugu,
 		>= '\u0E00' and <= '\u0E7F' => Script.Thai,
 		>= '\u10A0' and <= '\u10FF' => Script.Georgian,
 		>= '\u1E00' and <= '\u1EFF' => Script.Latin,

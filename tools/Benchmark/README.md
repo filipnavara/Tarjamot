@@ -12,6 +12,10 @@ Read its methodology sections before comparing builds; this file only explains t
   embeddings, core count. The engine grants it `InternalsVisibleTo` since the commit that added
   these tools, so it works only with builds that include that commit; older builds throw
   `MethodAccessException`.
+- `LanguageIdentification` (`LanguageIdentificationBenchmark`): loading the embedded language
+  identification tables or a profile in eM Client's format (time, allocated and retained bytes), and
+  `Identify` returning an array or writing to a span (time and allocated bytes per call). It references
+  the projects directly: build it from each commit to compare (`Results/langid-tables.txt`).
 - `Scripts`: building copies of the engine, byte-for-byte output checks, alternating benchmark
   runs, summaries and profile analysis.
 - `Results`: the raw measurements of the experiments.
@@ -102,4 +106,5 @@ head sizes 32 and 48.
 | `results-opt8.txt` | `a58f08e8b3a` / eight-row AVX-512 tiles, three processes per case; invalid overlapping measurements excluded |
 | `results-vnni-avx2.txt` | `16a8804fa81` (`head`) / `VPDPBUSD` with exact correction (`vnni`, first version), `DOTNET_EnableAVX512=0` |
 | `results-vnni2-check.txt` | `vnni` / final version (`vnni2`) with AVX2, and `head` / `vnni2` with AVX-512 |
+| `langid-tables.txt` | `LanguageIdentificationBenchmark`, `9dec5d7` / tables used in place |
 | `micro-vnni2-avx2.txt` | `gemm` microbenchmark, `head` / `vnni2`, two runs each, `DOTNET_EnableAVX512=0` |

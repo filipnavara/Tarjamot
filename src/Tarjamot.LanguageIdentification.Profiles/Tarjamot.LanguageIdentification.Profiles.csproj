@@ -1,12 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- The embedded tables are used in place through the resource stream's pointer. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>Tarjamot.LanguageIdentification.Profiles</PackageId>
-    <Description>A prebuilt language profile for Tarjamot.LanguageIdentification: 55 languages, including Simplified and Traditional Chinese and Cyrillic and Latin Serbian, built from Wikipedia articles. About 1 MB embedded, 0.65 MB in memory. The data is derived from Wikipedia and licensed under CC BY-SA 4.0.</Description>
+    <Description>A prebuilt language profile for Tarjamot.LanguageIdentification: 55 languages, including Simplified and Traditional Chinese and Cyrillic and Latin Serbian, built from Wikipedia articles. About 0.6 MB embedded and used in place, without copying it to memory. The data is derived from Wikipedia and licensed under CC BY-SA 4.0.</Description>
     <PackageTags>language-identification;language-detection;ngram;wikipedia</PackageTags>
     <!-- The code is MIT; the embedded profile is derived from Wikipedia's text, CC BY-SA 4.0. -->
     <PackageLicenseExpression>MIT AND CC-BY-SA-4.0</PackageLicenseExpression>
@@ -22,7 +24,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="wikipedia.dat" LogicalName="Tarjamot.LanguageIdentification.Profiles.wikipedia.dat" />
+    <!-- wikipedia.tables is written from wikipedia.dat by tools/LanguageProfiles (see README.md). -->
+    <EmbeddedResource Include="wikipedia.tables" LogicalName="Tarjamot.LanguageIdentification.Profiles.wikipedia.tables" />
   </ItemGroup>
 
   <ItemGroup>

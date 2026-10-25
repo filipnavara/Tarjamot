@@ -6,6 +6,7 @@ using Tarjamot.LanguageProfiles;
 //
 //   LanguageProfiles download <corpus> <language>... [--characters N] [--parallel N]
 //   LanguageProfiles build <corpus> <profile.dat> [--max-ngram-length N] [--profile-size N] [--characters N]
+//   LanguageProfiles tables <profile.dat> <profile.tables>
 //   LanguageProfiles languages
 
 const string usage = """
@@ -17,6 +18,9 @@ const string usage = """
 	  LanguageProfiles build <corpus> <profile.dat> [--max-ngram-length N] [--profile-size N] [--characters N]
 	      Counts the n-grams of every <corpus>/*.txt (the file name is the language tag), optionally of
 	      the first N characters of each, and writes the binary profile (defaults: 3, 2500).
+	  LanguageProfiles tables <profile.dat> <profile.tables>
+	      Writes the tables of a profile for LanguageIdentifier.LoadTables, without the n-grams of the
+	      languages decided by their script.
 	  LanguageProfiles languages
 	      Lists the tags that come from another wiki or from a script variant.
 	""";
@@ -30,6 +34,7 @@ try
 	{
 		"download" when args.Length >= 3 => await DownloadAsync(args[1], args[2..]),
 		"build" when args.Length >= 3 => Build(args[1], args[2], args[3..]),
+		"tables" when args.Length == 3 => WriteTables(args[1], args[2]),
 		"languages" => ListLanguages(),
 		_ => Fail(null),
 	};
@@ -93,7 +98,7 @@ static int Build(string corpus, string output, string[] arguments)
 	{
 		var identifier = LanguageIdentifier.Load(stream);
 		Console.Error.WriteLine($"Wrote {output}: {identifier.Languages.Count} languages, {new FileInfo(output).Length / 1024} KB, " +
-			$"{identifier.TableSize / 1024} KB of tables in memory, in {stopwatch.Elapsed.TotalSeconds:F1} s");
+			$"{identifier.TableSize / 1024} KB of tables, in {stopwatch.Elapsed.TotalSeconds:F1} s");
 	}
 	return 0;
 
@@ -103,6 +108,17 @@ static int Build(string corpus, string output, string[] arguments)
 		var read = reader.ReadBlock(buffer, 0, buffer.Length);
 		return new string(buffer, 0, read);
 	}
+}
+
+static int WriteTables(string profile, string output)
+{
+	LanguageIdentifier identifier;
+	using (var stream = File.OpenRead(profile))
+		identifier = LanguageIdentifier.Load(stream);
+	using (var stream = File.Create(output))
+		identifier.WriteTables(stream);
+	Console.Error.WriteLine($"Wrote {output}: {identifier.Languages.Count} languages, {identifier.TableSize / 1024} KB");
+	return 0;
 }
 
 static int ListLanguages()

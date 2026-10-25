@@ -227,7 +227,7 @@ engine, that identifies the language of a text: naive Bayes over character n-gra
 of NTextCat, loaded from profiles in eM Client's binary format, with the Unicode script of the
 text narrowing the candidates. `Tarjamot.LanguageIdentification.Profiles` adds a prebuilt
 55-language profile from Wikipedia articles, with separate Simplified and Traditional Chinese,
-that takes about 0.65 MB in memory; `tools/LanguageProfiles` builds others. See
+whose 0.6 MB of tables are used in place in the assembly; `tools/LanguageProfiles` builds others. See
 [its README](src/Tarjamot.LanguageIdentification/README.md).
 
 ## License
