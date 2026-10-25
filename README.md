@@ -45,6 +45,23 @@ echo "Dobrý den, jak se máte?" | dotnet run --project tools/Translate -c Relea
 dotnet run --project tools/Translate -c Release -- cs de --input article.txt
 ```
 
+### Publishing with NativeAOT
+
+The library and `tools/Translate` are NativeAOT-compatible. A native binary starts in about
+40 ms instead of about 200 ms and uses about 55 MB less memory, at the same warm speed (see
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md#nativeaot)):
+
+```
+dotnet publish tools/Translate -c Release -r osx-arm64 -p:PublishAot=true -o publish
+```
+
+The int8 kernel is chosen when the binary is compiled, not when it runs. osx-arm64 targets the
+Apple M1 and includes `SDOT`. NativeAOT's default x64 target does not include AVX2, so the binary
+contains only the portable kernel, which is about 4.6x slower. Add
+`-p:IlcInstructionSet=x86-64-v3` for AVX2, or `x86-64-v4` for AVX-512. Such a binary does not
+start on CPUs without those instructions. The same applies to applications that publish the
+library with NativeAOT.
+
 ## What matches Firefox
 
 The output is meant to be the same as Firefox 158 (WASM engine 4.0, `useLexicalShortlist` off).
