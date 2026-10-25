@@ -6,19 +6,6 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Tarjamot.Engine;
 
-/// <summary>Implementation of the int8 dot products.</summary>
-internal enum Int8Kernel
-{
-	/// <summary>Vector128/Vector256 code for any platform.</summary>
-	Portable,
-
-	/// <summary>ARM SDOT (dot product extension).</summary>
-	ArmDotProduct,
-
-	/// <summary>x86 PMADDUBSW (AVX2, AVX-512BW where available).</summary>
-	X86,
-}
-
 /// <summary>
 /// Quantized activations of one matrix product: int8 values and, for the portable kernel, the
 /// same values widened to int16. The x86 kernel has only the values shifted to unsigned (value + 127).
@@ -36,10 +23,10 @@ internal sealed class QuantizedActivations
 /// Int8 matrix products with exact int32 accumulation.
 /// <para>
 /// There is no cross-platform widening dot product (TensorPrimitives.Dot&lt;sbyte&gt; and
-/// Vector128.Dot accumulate in sbyte and overflow), so the portable kernel builds one from
-/// Vector128/Vector256 operations: an int8 product fits in int16 and so does the sum of two of
-/// them (at most 2 * 127 * 127), which is then widened to int32. On ARM with the dot product
-/// extension, SDOT does this in one instruction and is used instead.
+/// Vector128.Dot accumulate in sbyte and overflow), so the portable kernel builds one from Vector128
+/// operations: an int8 product fits in int16 and so does the sum of two of them (at most
+/// 2 * 127 * 127), which is then widened to int32. On ARM with the dot product extension, SDOT does
+/// this in one instruction and is used instead; on x86 with AVX2, PMADDUBSW (see Int8Gemm.X86.cs).
 /// </para>
 /// </summary>
 internal static partial class Int8Gemm
@@ -62,46 +49,46 @@ internal static partial class Int8Gemm
 	const long X86MinChunkWork = 1L << 21;
 
 	/// <summary>The number of chunks to split a product into, 1 to compute it on the calling thread.</summary>
-	static int ParallelChunks(long work, int partitions, Int8Kernel kernel, bool parallel)
+	static int ParallelChunks(long work, int partitions, bool parallel)
 	{
-		bool x86 = Avx2.IsSupported && kernel == Int8Kernel.X86;
+		bool x86 = Avx2.IsSupported;
 		if (!parallel || work < (x86 ? X86MinParallelWork : MinParallelWork))
 			return 1;
 		long maximum = x86 ? ProcessorTopology.PhysicalCores : Environment.ProcessorCount * 4L;
 		return (int)Math.Max(1, Math.Min(Math.Min(work / (x86 ? X86MinChunkWork : MinChunkWork), maximum), partitions));
 	}
 
-	/// <summary>The fastest kernel for this machine: SDOT or AVX2 where available, otherwise portable.</summary>
-	public static Int8Kernel DefaultKernel => Dp.IsSupported ? Int8Kernel.ArmDotProduct : Avx2.IsSupported ? Int8Kernel.X86 : Int8Kernel.Portable;
+	/// <summary>
+	/// The kernel this machine uses, for diagnostics: ARM SDOT (dot product extension), x86
+	/// PMADDUBSW (AVX2, AVX-512BW where available), or portable Vector128 code. The products test
+	/// Dp.IsSupported and Avx2.IsSupported directly, which the JIT compiles as constants; the
+	/// DOTNET_EnableArm64Dp=0 and DOTNET_EnableAVX2=0 switches select the portable kernel.
+	/// </summary>
+	public static string KernelName => Dp.IsSupported ? "ArmDotProduct" : Avx2.IsSupported ? "X86" : "Portable";
 
 	/// <summary>
-	/// Whether a kernel's products need <see cref="QuantizedMatrix.SaturationPairs"/>: the x86 kernel's
+	/// Whether the products need <see cref="QuantizedMatrix.SaturationPairs"/>: the x86 kernel's
 	/// PMADDUBSW saturates the pairs itself, except with exact VPDPBUSD sums (X86ExactSums); the others
 	/// compute exact sums and correct them.
 	/// </summary>
-	public static bool UsesSaturationMetadata(Int8Kernel kernel) => !(Avx2.IsSupported && kernel == Int8Kernel.X86) || X86ExactSums;
+	public static bool UsesSaturationMetadata => !Avx2.IsSupported || X86ExactSums;
 
-	static void RequireProductMetadata(QuantizedMatrix w, Int8Kernel kernel)
+	static void RequireProductMetadata(QuantizedMatrix w)
 	{
 		if (!w.HasRowSums)
 			throw new NotSupportedException("The matrix was loaded only to be looked up, without row sums.");
-		if (UsesSaturationMetadata(kernel) && !w.HasSaturationMetadata)
+		if (UsesSaturationMetadata && !w.HasSaturationMetadata)
 			throw new NotSupportedException("The matrix was loaded for the x86 kernel, without saturation metadata.");
 	}
 
-	/// <summary>Outputs per packed weight panel for a kernel, or 0 when it uses row-major weights.</summary>
-	public static int PanelWidth(Int8Kernel kernel) => kernel switch
-	{
-		Int8Kernel.ArmDotProduct => 4,
-		Int8Kernel.X86 => X86PanelWidth,
-		_ => 0,
-	};
+	/// <summary>Outputs per packed weight panel, or 0 for the portable kernel, which uses row-major weights.</summary>
+	public static int PanelWidth => Dp.IsSupported ? 4 : Avx2.IsSupported ? X86PanelWidth : 0;
 
 	/// <summary>Int8Shift::PrepareA with a fixed alpha: round to nearest even, saturate to [-127, 127].</summary>
 	/// <remarks>The x86 kernel reads only the shifted values, so only those are stored for it.</remarks>
-	public static void Quantize(ReadOnlySpan<float> x, float alpha, QuantizedActivations destination, Int8Kernel kernel)
+	public static void Quantize(ReadOnlySpan<float> x, float alpha, QuantizedActivations destination)
 	{
-		if (Avx2.IsSupported && kernel == Int8Kernel.X86)
+		if (Avx2.IsSupported)
 		{
 			if (destination.Shifted.Length < x.Length)
 				destination.Shifted = new byte[x.Length];
@@ -114,7 +101,7 @@ internal static partial class Int8Gemm
 			destination.Values = new sbyte[x.Length];
 		var values = destination.Values.AsSpan(0, x.Length);
 		QuantizeBytes(x, alpha, 0, MemoryMarshal.AsBytes(values));
-		if (kernel != Int8Kernel.Portable)
+		if (Dp.IsSupported)
 			return;
 		if (destination.Widened.Length < x.Length)
 			destination.Widened = new short[x.Length];
@@ -155,33 +142,33 @@ internal static partial class Int8Gemm
 	/// to unsigned (a + 127), pairs of products added with int16 saturation. The shift is undone by
 	/// the prepared bias (bias - 127 * rowSum / (alpha * quantMult), see <see cref="PrepareBias"/>).
 	/// </summary>
-	public static void Multiply(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, float unquant, float[] preparedBias, float[] y, Int8Kernel kernel, bool parallel)
+	public static void Multiply(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, float unquant, float[] preparedBias, float[] y, bool parallel)
 	{
-		RequireProductMetadata(w, kernel);
+		RequireProductMetadata(w);
 		int outputs = weightRows?.Length ?? w.Rows;
 		// The IsSupported checks are JIT-time constants, so each platform keeps only its own branch.
 		if (w.IsPacked)
 		{
-			if (w.PanelWidth != PanelWidth(kernel))
+			if (w.PanelWidth != PanelWidth)
 				throw new NotSupportedException("The matrix is packed for a different kernel.");
 			if (weightRows != null)
 				throw new NotSupportedException("Selected rows require row-major weights.");
-			if (Avx2.IsSupported && kernel == Int8Kernel.X86)
+			if (Avx2.IsSupported)
 				MultiplyX86(a, rows, w, outputs, unquant, preparedBias, y, parallel);
-			else if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+			else if (Dp.IsSupported)
 				MultiplyPacked(a, rows, w, outputs, unquant, preparedBias, y, parallel);
 			else
 				throw new PlatformNotSupportedException();
 			return;
 		}
-		MultiplyRowMajor(a, rows, w, weightRows, outputs, unquant, preparedBias, y, kernel, parallel);
+		MultiplyRowMajor(a, rows, w, weightRows, outputs, unquant, preparedBias, y, parallel);
 	}
 
-	static void MultiplyRowMajor(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, int outputs, float unquant, float[] preparedBias, float[] y, Int8Kernel kernel, bool parallel)
+	static void MultiplyRowMajor(QuantizedActivations a, int rows, QuantizedMatrix w, int[]? weightRows, int outputs, float unquant, float[] preparedBias, float[] y, bool parallel)
 	{
 		int width = w.Cols;
 		long work = (long)rows * width * outputs;
-		int chunks = ParallelChunks(work, outputs, kernel, parallel);
+		int chunks = ParallelChunks(work, outputs, parallel);
 		if (chunks > 1)
 		{
 			Parallel.For(0, chunks, c => ComputeRange(outputs * c / chunks, outputs * (c + 1) / chunks));
@@ -202,7 +189,7 @@ internal static partial class Int8Gemm
 				int blockEnd = Math.Min(rows, blockStart + rowBlock);
 				int j = start;
 				// A 4 x 2 tile shares activation loads between two output columns as well.
-				if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+				if (Dp.IsSupported)
 				{
 					for (; j + 1 < end; j += 2)
 					{
@@ -218,8 +205,8 @@ internal static partial class Int8Gemm
 								DotArm4x2(a.Values.AsSpan(r * width, 4 * width), w0, w1, sums);
 							else
 							{
-								Dot(a, r, count, w0, sums, kernel);
-								Dot(a, r, count, w1, sums[4..], kernel);
+								Dot(a, r, count, w0, sums);
+								Dot(a, r, count, w1, sums[4..]);
 							}
 							for (int k = 0; k < count; k++)
 							{
@@ -238,14 +225,14 @@ internal static partial class Int8Gemm
 					var weights = w.Data.AsSpan(row * width, width);
 					float b = preparedBias[row];
 					int shift = 127 * w.RowSums[row];
-					var pairs = RowPairs(w, row, kernel);
+					var pairs = RowPairs(w, row);
 					for (int r = blockStart; r < blockEnd; r += 4)
 					{
 						int count = Math.Min(4, blockEnd - r);
-						Dot(a, r, count, weights, sums, kernel);
+						Dot(a, r, count, weights, sums);
 						for (int k = 0; k < count; k++)
 						{
-							int sum = Avx2.IsSupported && kernel == Int8Kernel.X86 ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
+							int sum = Avx2.IsSupported ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
 							y[(r + k) * outputs + j] = sum * unquant + b;
 						}
 					}
@@ -256,7 +243,7 @@ internal static partial class Int8Gemm
 
 	// The saturating pairs of a row for the kernels that correct them; none for the x86 kernel, whose
 	// matrices may have no metadata.
-	static ReadOnlySpan<int> RowPairs(QuantizedMatrix w, int row, Int8Kernel kernel) => UsesSaturationMetadata(kernel)
+	static ReadOnlySpan<int> RowPairs(QuantizedMatrix w, int row) => UsesSaturationMetadata
 		? w.SaturationPairs.AsSpan(w.SaturationOffsets[row], w.SaturationOffsets[row + 1] - w.SaturationOffsets[row])
 		: [];
 
@@ -294,15 +281,15 @@ internal static partial class Int8Gemm
 	// vector is loaded once for several rows.
 	// For the x86 kernel, the sums are intgemm's complete Int8Shift products; otherwise they are
 	// exact signed products, without the shift and the saturation.
-	static void Dot(QuantizedActivations a, int firstRow, int count, ReadOnlySpan<sbyte> w, Span<int> sums, Int8Kernel kernel)
+	static void Dot(QuantizedActivations a, int firstRow, int count, ReadOnlySpan<sbyte> w, Span<int> sums)
 	{
 		int width = w.Length;
-		if (Avx2.IsSupported && kernel == Int8Kernel.X86)
+		if (Avx2.IsSupported)
 		{
 			DotX86RowMajor(a.Shifted.AsSpan(firstRow * width, count * width), count, w, sums);
 			return;
 		}
-		if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+		if (Dp.IsSupported)
 		{
 			var values = a.Values.AsSpan(firstRow * width, count * width);
 			if (count == 4)
@@ -329,24 +316,13 @@ internal static partial class Int8Gemm
 		ref short ra = ref MemoryMarshal.GetReference(a);
 		ref sbyte rw = ref MemoryMarshal.GetReference(w);
 		int i = 0;
-		int sum = 0;
-		if (Vector256.IsHardwareAccelerated)
-		{
-			var acc = Vector256<int>.Zero;
-			for (; i + 32 <= w.Length; i += 32)
-			{
-				var (wLo, wHi) = Vector256.Widen(Vector256.LoadUnsafe(ref rw, (nuint)i));
-				acc += PairSum(Vector256.LoadUnsafe(ref ra, (nuint)i), Vector256.LoadUnsafe(ref ra, (nuint)i + 16), wLo, wHi);
-			}
-			sum = Vector256.Sum(acc);
-		}
-		var acc128 = Vector128<int>.Zero;
+		var acc = Vector128<int>.Zero;
 		for (; i + 16 <= w.Length; i += 16)
 		{
 			var (wLo, wHi) = Vector128.Widen(Vector128.LoadUnsafe(ref rw, (nuint)i));
-			acc128 += PairSum(Vector128.LoadUnsafe(ref ra, (nuint)i), Vector128.LoadUnsafe(ref ra, (nuint)i + 8), wLo, wHi);
+			acc += PairSum(Vector128.LoadUnsafe(ref ra, (nuint)i), Vector128.LoadUnsafe(ref ra, (nuint)i + 8), wLo, wHi);
 		}
-		return sum + Vector128.Sum(acc128) + DotScalar(a, w, i);
+		return Vector128.Sum(acc) + DotScalar(a, w, i);
 	}
 
 	static void DotPortable4(ReadOnlySpan<short> a, ReadOnlySpan<sbyte> w, Span<int> sums)
@@ -355,23 +331,6 @@ internal static partial class Int8Gemm
 		ref short ra = ref MemoryMarshal.GetReference(a);
 		ref sbyte rw = ref MemoryMarshal.GetReference(w);
 		int i = 0;
-		sums.Clear();
-		if (Vector256.IsHardwareAccelerated)
-		{
-			Vector256<int> acc0 = default, acc1 = default, acc2 = default, acc3 = default;
-			for (; i + 32 <= width; i += 32)
-			{
-				var (wLo, wHi) = Vector256.Widen(Vector256.LoadUnsafe(ref rw, (nuint)i));
-				acc0 += PairSum(Vector256.LoadUnsafe(ref ra, (nuint)i), Vector256.LoadUnsafe(ref ra, (nuint)i + 16), wLo, wHi);
-				acc1 += PairSum(Vector256.LoadUnsafe(ref ra, (nuint)(width + i)), Vector256.LoadUnsafe(ref ra, (nuint)(width + i + 16)), wLo, wHi);
-				acc2 += PairSum(Vector256.LoadUnsafe(ref ra, (nuint)(2 * width + i)), Vector256.LoadUnsafe(ref ra, (nuint)(2 * width + i + 16)), wLo, wHi);
-				acc3 += PairSum(Vector256.LoadUnsafe(ref ra, (nuint)(3 * width + i)), Vector256.LoadUnsafe(ref ra, (nuint)(3 * width + i + 16)), wLo, wHi);
-			}
-			sums[0] = Vector256.Sum(acc0);
-			sums[1] = Vector256.Sum(acc1);
-			sums[2] = Vector256.Sum(acc2);
-			sums[3] = Vector256.Sum(acc3);
-		}
 		Vector128<int> b0 = default, b1 = default, b2 = default, b3 = default;
 		for (; i + 16 <= width; i += 16)
 		{
@@ -381,19 +340,13 @@ internal static partial class Int8Gemm
 			b2 += PairSum(Vector128.LoadUnsafe(ref ra, (nuint)(2 * width + i)), Vector128.LoadUnsafe(ref ra, (nuint)(2 * width + i + 8)), wLo, wHi);
 			b3 += PairSum(Vector128.LoadUnsafe(ref ra, (nuint)(3 * width + i)), Vector128.LoadUnsafe(ref ra, (nuint)(3 * width + i + 8)), wLo, wHi);
 		}
-		sums[0] += Vector128.Sum(b0) + DotScalar(a[..width], w, i);
-		sums[1] += Vector128.Sum(b1) + DotScalar(a.Slice(width, width), w, i);
-		sums[2] += Vector128.Sum(b2) + DotScalar(a.Slice(2 * width, width), w, i);
-		sums[3] += Vector128.Sum(b3) + DotScalar(a.Slice(3 * width, width), w, i);
+		sums[0] = Vector128.Sum(b0) + DotScalar(a[..width], w, i);
+		sums[1] = Vector128.Sum(b1) + DotScalar(a.Slice(width, width), w, i);
+		sums[2] = Vector128.Sum(b2) + DotScalar(a.Slice(2 * width, width), w, i);
+		sums[3] = Vector128.Sum(b3) + DotScalar(a.Slice(3 * width, width), w, i);
 	}
 
 	// aLo * wLo + aHi * wHi stays within int16 for int8 inputs; widen the result to int32.
-	static Vector256<int> PairSum(Vector256<short> aLo, Vector256<short> aHi, Vector256<short> wLo, Vector256<short> wHi)
-	{
-		var (lo, hi) = Vector256.Widen(aLo * wLo + aHi * wHi);
-		return lo + hi;
-	}
-
 	static Vector128<int> PairSum(Vector128<short> aLo, Vector128<short> aHi, Vector128<short> wLo, Vector128<short> wHi)
 	{
 		var (lo, hi) = Vector128.Widen(aLo * wLo + aHi * wHi);

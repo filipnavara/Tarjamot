@@ -88,9 +88,10 @@ Apple M5, warm, Czech Wikipedia article (3,136 words):
 
 Chinese article (7,759 characters): Firefox 15 s, this library 4.7-6.2 s on one thread.
 
-The int8 kernel is portable `Vector128`/`Vector256` code. ARM's `SDOT` instruction is used where
+The int8 kernel is portable `Vector128` code. ARM's `SDOT` instruction is used where
 available, which makes it about 3x faster, and x86's `PMADDUBSW` (AVX2, AVX-512BW), which makes
-it about 4.6x faster.
+it about 4.6x faster. The runtime switches `DOTNET_EnableArm64Dp=0` and `DOTNET_EnableAVX2=0`
+select the portable kernel.
 
 More measurements and the history of the optimizations are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
 and [docs/X86-PERFORMANCE.md](docs/X86-PERFORMANCE.md).

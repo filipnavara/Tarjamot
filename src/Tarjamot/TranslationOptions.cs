@@ -50,9 +50,6 @@ public sealed record TranslationOptions
 	/// </summary>
 	public MarkupTranslator MarkupTranslator { get; init; } = ProjectedMarkupTranslator.Instance;
 
-	/// <summary>Uses the portable int8 kernel even where a platform-specific one is available.</summary>
-	public bool UsePortableKernel { get; init; }
-
 	/// <summary>
 	/// Maximum idle workers retained by each model, across all execution modes. When a pool limit
 	/// is reached, the least recently returned idle workers are evicted.

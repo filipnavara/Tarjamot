@@ -28,16 +28,14 @@ public sealed class TranslationModel
 	{
 		options ??= TranslationOptions.Default;
 		options.ValidateRetention();
-		var kernel = options.UsePortableKernel ? Int8Kernel.Portable : Int8Gemm.DefaultKernel;
 		using var modelStream = File.OpenRead(FindFile(directory, "model.*.bin")!);
-		var model = new MarianModel(modelStream, kernel);
+		var model = new MarianModel(modelStream);
 		var sharedVocab = FindFile(directory, "vocab.*.spm", required: false);
 		var sourceVocab = new SentencePieceVocab(File.ReadAllBytes(sharedVocab ?? FindFile(directory, "srcvocab.*.spm")!));
 		var targetVocab = sharedVocab is null ? new SentencePieceVocab(File.ReadAllBytes(FindFile(directory, "trgvocab.*.spm")!)) : sourceVocab;
 		var shortlistPath = options.UseShortlist ? FindFile(directory, "lex.*.bin") : null;
 		var shortlist = shortlistPath is null ? null : new Shortlist(File.ReadAllBytes(shortlistPath));
 		var engineOptions = new MarianEngineOptions(
-			kernel,
 			options.Parallelism,
 			options.MaxBatchTokens,
 			options.MaxIdleWorkers,

@@ -40,7 +40,7 @@ internal static partial class Int8Gemm
 		int width = w.Cols;
 		int panels = (outputs + X86PanelWidth - 1) / X86PanelWidth;
 		long work = (long)rows * width * outputs;
-		int chunks = ParallelChunks(work, panels, Int8Kernel.X86, parallel);
+		int chunks = ParallelChunks(work, panels, parallel);
 		if (chunks > 1)
 		{
 			Parallel.For(0, chunks, c => ComputeRange(panels * c / chunks, panels * (c + 1) / chunks));

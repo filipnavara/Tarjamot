@@ -1,19 +1,18 @@
+using System.Runtime.Intrinsics.Arm;
+using System.Runtime.Intrinsics.X86;
 using Tarjamot.Engine;
 using NUnit.Framework;
 
 namespace Tarjamot.Tests;
 
 /// <summary>
-/// The int8 kernels against a scalar implementation of intgemm's Int8Shift product: activations
-/// shifted to unsigned and each pair of products summed with int16 saturation.
+/// This machine's int8 kernel against a scalar implementation of intgemm's Int8Shift product:
+/// activations shifted to unsigned and each pair of products summed with int16 saturation. Run with
+/// DOTNET_EnableArm64Dp=0 or DOTNET_EnableAVX2=0 for the portable kernel.
 /// </summary>
 [TestFixture]
 public class Int8GemmTest
 {
-	// True: the portable kernel; false: the platform's default kernel (the same one where there is
-	// no platform-specific kernel).
-	static Int8Kernel Kernel(bool portable) => portable ? Int8Kernel.Portable : Int8Gemm.DefaultKernel;
-
 	[TestCase(1, 4)]
 	[TestCase(15, 4)]
 	[TestCase(40, 4)]
@@ -85,7 +84,7 @@ public class Int8GemmTest
 	}
 
 	[Test]
-	public void QuantizeMatchesScalarRoundingAndSaturation([Values] bool portable, [Values(0, 1, 15, 16, 17, 31, 32, 513)] int length, [Values(1f, 60f, 127f)] float alpha)
+	public void QuantizeMatchesScalarRoundingAndSaturation([Values(0, 1, 15, 16, 17, 31, 32, 513)] int length, [Values(1f, 60f, 127f)] float alpha)
 	{
 		var random = new Random(42);
 		var input = new float[length];
@@ -95,23 +94,22 @@ public class Int8GemmTest
 		var expected = input.Select(x => (sbyte)Math.Clamp(MathF.Round(x * alpha), -127f, 127f)).ToArray();
 		var activations = new QuantizedActivations();
 
-		Int8Gemm.Quantize(input, alpha, activations, Kernel(portable));
+		Int8Gemm.Quantize(input, alpha, activations);
 
-		if (Kernel(portable) == Int8Kernel.X86)
+		if (Avx2.IsSupported)
 		{
 			Assert.That(activations.Shifted.AsSpan(0, length).ToArray(), Is.EqualTo(expected.Select(x => (byte)(x + 127))));
 			Assert.That(activations.Values, Is.Empty);
 			return;
 		}
 		Assert.That(activations.Values.AsSpan(0, length).ToArray(), Is.EqualTo(expected));
-		if (Kernel(portable) == Int8Kernel.Portable)
+		if (!Dp.IsSupported)
 			Assert.That(activations.Widened.AsSpan(0, length).ToArray(), Is.EqualTo(expected.Select(x => (short)x)));
 	}
 
 	[Test]
-	public void MatchesIntgemmSemantics([Values] bool packed, [Values] bool portable, [Values(1, 2, 3, 4, 6, 8, 9, 11, 15, 17, 33)] int rows, [Values(16, 36, 40, 512, 1536)] int width, [Values(false, true)] bool parallel)
+	public void MatchesIntgemmSemantics([Values] bool packed, [Values(1, 2, 3, 4, 6, 8, 9, 11, 15, 17, 33)] int rows, [Values(16, 36, 40, 512, 1536)] int width, [Values(false, true)] bool parallel)
 	{
-		var kernel = Kernel(portable);
 		var random = new Random(rows * 1000 + width);
 		const int outputs = 37;
 		// Large same-sign weight pairs make the int16 pair sums saturate.
@@ -120,7 +118,7 @@ public class Int8GemmTest
 			weights[i] = (sbyte)(i % 7 == 0 ? 127 : random.Next(-127, 128));
 		var matrix = QuantizedMatrix.Create(weights, outputs, width, quantMult: 50f, alpha: 0f);
 		if (packed)
-			matrix = matrix.Pack(Int8Gemm.PanelWidth(kernel));
+			matrix = matrix.Pack(Int8Gemm.PanelWidth);
 		var x = new float[rows * width];
 		for (int i = 0; i < x.Length; i++)
 			x[i] = (float)(random.NextDouble() * 4 - 2);
@@ -128,11 +126,11 @@ public class Int8GemmTest
 		var bias = Enumerable.Range(0, outputs).Select(j => j * 0.25f).ToArray();
 
 		var activations = new QuantizedActivations();
-		Int8Gemm.Quantize(x, alpha, activations, kernel);
+		Int8Gemm.Quantize(x, alpha, activations);
 		float unquant = 1f / (alpha * matrix.QuantMult);
 		var prepared = Int8Gemm.PrepareBias(matrix, alpha, bias);
 		var y = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, matrix, null, unquant, prepared, y, kernel, parallel);
+		Int8Gemm.Multiply(activations, rows, matrix, null, unquant, prepared, y, parallel);
 
 		for (int r = 0; r < rows; r++)
 		{
@@ -152,10 +150,9 @@ public class Int8GemmTest
 	}
 
 	[Test]
-	public void LargeProductIsSplitAcrossThreadsWithIdenticalResults([Values] bool packed, [Values] bool portable)
+	public void LargeProductIsSplitAcrossThreadsWithIdenticalResults([Values] bool packed)
 	{
 		// 8 x 512 x 8003 multiply-adds is above the size from which products run in parallel.
-		var kernel = Kernel(portable);
 		var random = new Random(2);
 		const int rows = 8, width = 512, outputs = 8003;
 		var weights = new sbyte[outputs * width];
@@ -163,24 +160,23 @@ public class Int8GemmTest
 		var matrix = QuantizedMatrix.Create(weights, outputs, width, 40f, 0f);
 		var original = matrix;
 		if (packed)
-			matrix = matrix.Pack(Int8Gemm.PanelWidth(kernel));
+			matrix = matrix.Pack(Int8Gemm.PanelWidth);
 		var x = Enumerable.Range(0, rows * width).Select(_ => (float)(random.NextDouble() * 2 - 1)).ToArray();
 		var activations = new QuantizedActivations();
-		Int8Gemm.Quantize(x, 100f, activations, kernel);
+		Int8Gemm.Quantize(x, 100f, activations);
 		var prepared = Int8Gemm.PrepareBias(matrix, 100f, null);
 		var serial = new float[rows * outputs];
 		var parallel = new float[rows * outputs];
 
-		Int8Gemm.Multiply(activations, rows, original, null, 1f / 4000f, prepared, serial, kernel, parallel: false);
-		Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, parallel, kernel, parallel: true);
+		Int8Gemm.Multiply(activations, rows, original, null, 1f / 4000f, prepared, serial, parallel: false);
+		Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, parallel, parallel: true);
 
 		Assert.That(parallel.Select(BitConverter.SingleToInt32Bits), Is.EqualTo(serial.Select(BitConverter.SingleToInt32Bits)));
 	}
 
 	[Test]
-	public void SelectedRows([Values] bool portable, [Values(1, 2, 4, 5)] int rows, [Values(1, 2, 3, 4, 7)] int selectedCount)
+	public void SelectedRows([Values(1, 2, 4, 5)] int rows, [Values(1, 2, 3, 4, 7)] int selectedCount)
 	{
-		var kernel = Kernel(portable);
 		var random = new Random(1);
 		const int width = 64, outputs = 50;
 		var weights = new sbyte[outputs * width];
@@ -189,14 +185,14 @@ public class Int8GemmTest
 		var matrix = QuantizedMatrix.Create(weights, outputs, width, 40f, 0f);
 		var x = Enumerable.Range(0, rows * width).Select(_ => (float)random.NextDouble()).ToArray();
 		var activations = new QuantizedActivations();
-		Int8Gemm.Quantize(x, 100f, activations, kernel);
+		Int8Gemm.Quantize(x, 100f, activations);
 		var prepared = Int8Gemm.PrepareBias(matrix, 100f, null);
 		var all = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, all, kernel, parallel: false);
+		Int8Gemm.Multiply(activations, rows, matrix, null, 1f / 4000f, prepared, all, parallel: false);
 		int[] selected = [49, 3, 17, 3, 0, 48, 7];
 		selected = selected[..selectedCount];
 		var some = new float[rows * selected.Length];
-		Int8Gemm.Multiply(activations, rows, matrix, selected, 1f / 4000f, prepared, some, kernel, parallel: false);
+		Int8Gemm.Multiply(activations, rows, matrix, selected, 1f / 4000f, prepared, some, parallel: false);
 
 		for (int r = 0; r < rows; r++)
 		{

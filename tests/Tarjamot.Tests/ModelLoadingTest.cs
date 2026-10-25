@@ -1,5 +1,6 @@
 using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.X86;
 using System.Text;
 using Tarjamot.Engine;
 using NUnit.Framework;
@@ -24,10 +25,11 @@ public class ModelLoadingTest
 		AssertMatrix(expected.Pack(panelWidth), MarianWeights.CreateOutputWeights(embeddings, 10f, panelWidth));
 	}
 
+	// The layouts of the portable (row-major), ARM (4) and x86 (16) kernels, with and without the
+	// saturating pairs, which only the x86 kernel can omit.
 	[Test]
-	public void StreamLoaderMatchesRawContractAndPacksOnlyDenseMatrices([Values(nameof(Int8Kernel.Portable), nameof(Int8Kernel.ArmDotProduct), nameof(Int8Kernel.X86))] string kernelName)
+	public void StreamLoaderMatchesRawContractAndPacksOnlyDenseMatrices([Values(0, 4, 16)] int panelWidth, [Values] bool saturation)
 	{
-		var kernel = Enum.Parse<Int8Kernel>(kernelName);
 		var values = Enumerable.Range(0, 5 * 16).Select(i => (sbyte)(i * 37 % 256 - 128)).ToArray();
 		using var stream = new MemoryStream();
 		using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
@@ -60,14 +62,16 @@ public class ModelLoadingTest
 		}
 		var raw = new MarianModel(stream.ToArray());
 		stream.Position = 0;
-		var loaded = new MarianModel(stream, kernel);
+		var loaded = new MarianModel(stream, panelWidth, saturation);
 		Assert.That(stream.CanRead, Is.True);
 		Assert.That(loaded.UnnamedAlpha, Is.EqualTo(raw.UnnamedAlpha));
-		bool saturation = Int8Gemm.UsesSaturationMetadata(kernel);
 		// Embeddings are only looked up, so they have neither row sums nor saturation metadata.
 		AssertMatrix(raw.Matrix("Wemb"), loaded.Matrix("Wemb"), saturation: false, rowSums: false);
 		var dense = raw.Matrix("encoder_l1_self_Wq");
-		AssertMatrix(dense.Pack(Int8Gemm.PanelWidth(kernel)), loaded.Matrix("encoder_l1_self_Wq"), saturation);
+		AssertMatrix(dense.Pack(panelWidth), loaded.Matrix("encoder_l1_self_Wq"), saturation);
+		// Without a layout, the loader uses this machine's kernel.
+		stream.Position = 0;
+		AssertMatrix(dense.Pack(Int8Gemm.PanelWidth), new MarianModel(stream).Matrix("encoder_l1_self_Wq"), Int8Gemm.UsesSaturationMetadata);
 	}
 
 	[Test]
@@ -81,9 +85,9 @@ public class ModelLoadingTest
 	[Test]
 	public void X86ProductsDoNotNeedSaturationMetadata([Values(0, 16)] int panelWidth, [Values] bool selected)
 	{
-		if (Int8Gemm.DefaultKernel != Int8Kernel.X86)
+		if (!Avx2.IsSupported)
 			Assert.Ignore("x86 AVX2 instructions are unavailable.");
-		if (Int8Gemm.UsesSaturationMetadata(Int8Kernel.X86))
+		if (Int8Gemm.UsesSaturationMetadata)
 			Assert.Ignore("With AVX-VNNI and without AVX-512, the x86 kernel computes exact sums and corrects the saturating pairs.");
 		if (selected && panelWidth != 0)
 			Assert.Ignore("Selected rows use row-major weights.");
@@ -96,19 +100,19 @@ public class ModelLoadingTest
 		var random = new Random(3);
 		var x = Enumerable.Range(0, 5 * 64).Select(_ => (float)(random.NextDouble() * 4 - 2)).ToArray();
 		var activations = new QuantizedActivations();
-		Int8Gemm.Quantize(x, 60f, activations, Int8Kernel.X86);
+		Int8Gemm.Quantize(x, 60f, activations);
 		var bias = Int8Gemm.PrepareBias(full, 60f, null);
 		int[]? rows = selected ? [36, 0, 5, 5, 20] : null;
 		int outputs = rows?.Length ?? 37;
 		var expected = new float[5 * outputs];
 		var actual = new float[5 * outputs];
-		Int8Gemm.Multiply(activations, 5, full, rows, 1f / 750f, bias, expected, Int8Kernel.X86, false);
-		Int8Gemm.Multiply(activations, 5, bare, rows, 1f / 750f, bias, actual, Int8Kernel.X86, false);
+		Int8Gemm.Multiply(activations, 5, full, rows, 1f / 750f, bias, expected, false);
+		Int8Gemm.Multiply(activations, 5, bare, rows, 1f / 750f, bias, actual, false);
 		Assert.That(actual.Select(BitConverter.SingleToInt32Bits), Is.EqualTo(expected.Select(BitConverter.SingleToInt32Bits)));
 		if (!selected)
 		{
-			var winners = Int8Gemm.MultiplyArgMax(activations, 5, full, 1f / 750f, bias, -1, new ArgMaxScratch(), Int8Kernel.X86, false).ToArray();
-			Assert.That(Int8Gemm.MultiplyArgMax(activations, 5, bare, 1f / 750f, bias, -1, new ArgMaxScratch(), Int8Kernel.X86, false).ToArray(), Is.EqualTo(winners));
+			var winners = Int8Gemm.MultiplyArgMax(activations, 5, full, 1f / 750f, bias, -1, new ArgMaxScratch(), false).ToArray();
+			Assert.That(Int8Gemm.MultiplyArgMax(activations, 5, bare, 1f / 750f, bias, -1, new ArgMaxScratch(), false).ToArray(), Is.EqualTo(winners));
 		}
 	}
 
@@ -117,29 +121,27 @@ public class ModelLoadingTest
 	{
 		var data = new sbyte[20 * 32];
 		var embeddings = QuantizedMatrix.CreateRows(20, 32, 1f, 1f, 0, (row, r) => data.AsSpan(r * 32, 32).CopyTo(row), saturation: false, rowSums: false);
-		var kernel = Int8Gemm.DefaultKernel;
 		var activations = new QuantizedActivations();
-		Int8Gemm.Quantize(new float[32], 1f, activations, kernel);
+		Int8Gemm.Quantize(new float[32], 1f, activations);
 		Assert.Throws<NotSupportedException>(() => Int8Gemm.PrepareBias(embeddings, 1f, null));
-		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, embeddings, null, 1f, new float[20], new float[20], kernel, false));
-		Assert.Throws<NotSupportedException>(() => Int8Gemm.MultiplyArgMax(activations, 1, embeddings, 1f, new float[20], -1, new ArgMaxScratch(), kernel, false));
+		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, embeddings, null, 1f, new float[20], new float[20], false));
+		Assert.Throws<NotSupportedException>(() => Int8Gemm.MultiplyArgMax(activations, 1, embeddings, 1f, new float[20], -1, new ArgMaxScratch(), false));
 		// Building the output layer from the embeddings needs only their values.
 		Assert.That(MarianWeights.CreateOutputWeights(embeddings, 1f).HasRowSums, Is.True);
 	}
 
 	[Test]
-	public void KernelsThatCorrectSaturationRejectMatricesWithoutMetadata([Values(nameof(Int8Kernel.Portable), nameof(Int8Kernel.ArmDotProduct))] string kernelName)
+	public void KernelsThatCorrectSaturationRejectMatricesWithoutMetadata()
 	{
-		var kernel = Enum.Parse<Int8Kernel>(kernelName);
-		if (kernel == Int8Kernel.ArmDotProduct && Int8Gemm.DefaultKernel != kernel)
-			Assert.Ignore("ARM dot-product instructions are unavailable.");
+		if (!Int8Gemm.UsesSaturationMetadata)
+			Assert.Ignore("The x86 kernel saturates the pairs itself.");
 		var embeddings = QuantizedMatrix.Create(new sbyte[20 * 32], 20, 32, 1f, 1f);
-		var weights = MarianWeights.CreateOutputWeights(embeddings, 1f, Int8Gemm.PanelWidth(kernel), saturation: false);
+		var weights = MarianWeights.CreateOutputWeights(embeddings, 1f, Int8Gemm.PanelWidth, saturation: false);
 		var activations = new QuantizedActivations();
-		Int8Gemm.Quantize(new float[32], 1f, activations, kernel);
+		Int8Gemm.Quantize(new float[32], 1f, activations);
 		var bias = Int8Gemm.PrepareBias(weights, 1f, null);
-		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, weights, null, 1f, bias, new float[20], kernel, false));
-		Assert.Throws<NotSupportedException>(() => Int8Gemm.MultiplyArgMax(activations, 1, weights, 1f, bias, -1, new ArgMaxScratch(), kernel, false));
+		Assert.Throws<NotSupportedException>(() => Int8Gemm.Multiply(activations, 1, weights, null, 1f, bias, new float[20], false));
+		Assert.Throws<NotSupportedException>(() => Int8Gemm.MultiplyArgMax(activations, 1, weights, 1f, bias, -1, new ArgMaxScratch(), false));
 	}
 
 	[Test]
@@ -162,13 +164,13 @@ public class ModelLoadingTest
 			writer.Write(1f);
 		}
 		var data = stream.ToArray();
-		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data[..^1]), Int8Kernel.Portable));
+		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data[..^1])));
 		BitConverter.GetBytes(19UL).CopyTo(data, 40);
-		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data), Int8Kernel.Portable));
+		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data)));
 		BitConverter.GetBytes(0x0404UL).CopyTo(data, 24);
-		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data), Int8Kernel.Portable));
+		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data)));
 		BitConverter.GetBytes(20UL).CopyTo(data, 40);
-		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data), Int8Kernel.Portable));
+		Assert.Throws<InvalidDataException>(() => new MarianModel(new MemoryStream(data)));
 	}
 
 	static void AssertMatrix(QuantizedMatrix expected, QuantizedMatrix actual, bool saturation = true, bool rowSums = true)

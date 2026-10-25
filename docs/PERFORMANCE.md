@@ -422,8 +422,15 @@ Zen 5 does not report; .NET 11 adds `AvxVnni.V512`. A microbenchmark of the AVX-
 Zen 5 core for 4 to 64 activation rows, about 80% of the two vector multiply ports.
 
 The `IsSupported` checks appear directly at each dispatch site, rather than behind a helper
-property, so the JIT drops the other platforms' branches even in tier 0. The `Int8Kernel` value
-still selects the portable kernel when `UsePortableKernel` is set.
+property, so the JIT drops the other platforms' branches even in tier 0. There is no runtime
+kernel choice: the portable kernel runs where the CPU has neither, or with the runtime switches
+`DOTNET_EnableArm64Dp=0` and `DOTNET_EnableAVX2=0`, which is how the tests and the output checks
+cover it. (An `Int8Kernel` value and `TranslationOptions.UsePortableKernel` used to select it on
+any CPU; the products tested that value in their loops.) Removing the value changed no output and
+no warm time measurably (Apple M5, one thread, 6-8 alternating runs: cs-en with and without the
+shortlist within 1%, the portable kernel within 2%). `DOTNET_EnableArm64Dp=0` itself makes the
+same portable code about 4% slower than the old option did, so compare portable timings only
+under the same switch.
 
 Two further changes apply to all platforms. Attention scores and attention-weighted values
 use `Vector512`/`Vector256` where available. Each lane is still one key or one output column
@@ -485,10 +492,26 @@ standard input.
 
 ## Platform math
 
-`MuslMath` ports musl's `expf`, `sinf` and `cosf` so that results are bit-identical to Firefox's
+`MuslMath` ports musl's `expf` and `sincosf` so that results are bit-identical to Firefox's
 WASM build. They are used by the scalar softmax (attention rows whose length is not a multiple
 of 4) and by the sinusoidal position embeddings. Building with `-p:TarjamotPlatformMath=true`
-replaces them with `MathF.Exp`, `MathF.Sin` and `MathF.Cos` and removes `MuslMath`.
+replaces them with `MathF.Exp` and `MathF.SinCos` and removes `MuslMath`.
+
+Marian calls `sinf` and `cosf` separately. musl's `sincosf` uses the same kernels and range
+branches, but checks the range and reduces the argument only once. The position scales
+`exp(i * -log(10000) / (dim / 2 - 1))` do not depend on the position, so they are computed once
+per model. On `Vector128` hardware, four values at a time go through a branch-free `sincosf`
+(each lane picks its reduction and quadrant by masks, with no fused multiply-add). The scalar and
+vector versions matched `sinf`/`cosf` bit for bit on every float below `2^28 * pi/2` (the scalar
+one on both signs) on Arm64, and on x64 (Rosetta) with AVX2 and with `DOTNET_EnableAVX2=0`.
+Translations did not change.
+
+The table of positions 0-511 (`TarjamotMicrobenchmark positions`, Apple M5, .NET 10.0.13, ranges
+over runs) took 1.9-2.1 µs per position with dim 384 and 2.4-2.9 µs with dim 512 before. The
+scalar `sincosf` takes 1.0-1.3 and 1.4-1.8 µs, and the vector one 0.7-1.2 and 0.9-1.0 µs. Each
+model fills the table once per process and doubles it as sentences get longer, so this saves
+about 1 ms of a first translation. Angle-addition recurrences and the platform's libm would be
+faster still, but change the last bits.
 
 On Windows (.NET 10.0.13, the C runtime's libm), `MathF` differed from musl in 0.07% of `expf`
 results over softmax inputs in [-30, 0]. It also differed in 0.12-0.14% of `sinf`/`cosf`

@@ -168,12 +168,4 @@ public class LocalTranslatorTest
 		Assert.That(model.Translate(greeting), Is.EqualTo("Hello, how are you?"));
 		Assert.That(model.Translate(Paragraph), Is.EqualTo(paragraph));
 	}
-
-	[Test]
-	public void PortableKernelGivesTheSameResult()
-	{
-		var options = new TranslationOptions { UsePortableKernel = true, Parallelism = TranslationParallelism.None };
-		var model = TranslationModel.Load(store.GetDirectory(new LanguagePair("cs", "en")), "en", options);
-		Assert.That(model.Translate("Dobr\u00FD den, jak se m\u00E1te?"), Is.EqualTo("Hello, how are you?"));
-	}
 }

@@ -8,9 +8,10 @@ Read its methodology sections before comparing builds; this file only explains t
   measurement: first translation, then warmup and timed translations, CPU time, allocations, live
   bytes and peak working set.
 - `Microbenchmark` (`TarjamotMicrobenchmark`): internals on one thread: int8 products on the model
-  shapes, model loading, output-layer conversion, matrix metadata sizes, attention loops, core
-  count. The engine grants it `InternalsVisibleTo` since the commit that added these tools, so
-  it works only with builds that include that commit; older builds throw `MethodAccessException`.
+  shapes, model loading, output-layer conversion, matrix metadata sizes, attention loops, position
+  embeddings, core count. The engine grants it `InternalsVisibleTo` since the commit that added
+  these tools, so it works only with builds that include that commit; older builds throw
+  `MethodAccessException`.
 - `Scripts`: building copies of the engine, byte-for-byte output checks, alternating benchmark
   runs, summaries and profile analysis.
 - `Results`: the raw measurements of the experiments.

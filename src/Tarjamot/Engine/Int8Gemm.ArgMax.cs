@@ -49,20 +49,20 @@ internal static partial class Int8Gemm
 	/// excluded, NaNs cannot win, and ties retain the earliest vocabulary index.
 	/// </summary>
 	public static ReadOnlySpan<int> MultiplyArgMax(QuantizedActivations a, int rows, QuantizedMatrix w,
-		float unquant, float[] preparedBias, int excluded, ArgMaxScratch scratch, Int8Kernel kernel, bool parallel)
+		float unquant, float[] preparedBias, int excluded, ArgMaxScratch scratch, bool parallel)
 	{
-		if (w.IsPacked && w.PanelWidth != PanelWidth(kernel))
+		if (w.IsPacked && w.PanelWidth != PanelWidth)
 			throw new NotSupportedException("The matrix is packed for a different kernel.");
-		RequireProductMetadata(w, kernel);
+		RequireProductMetadata(w);
 		int panelWidth = Math.Max(1, w.PanelWidth);
 		int partitions = (w.Rows + panelWidth - 1) / panelWidth;
 		long work = (long)rows * w.Cols * w.Rows;
-		int chunks = ParallelChunks(work, partitions, kernel, parallel);
+		int chunks = ParallelChunks(work, partitions, parallel);
 		scratch.Initialize(rows, chunks);
 		if (chunks == 1)
-			ArgMaxRange(a, rows, w, unquant, preparedBias, excluded, scratch, kernel, 0, 0, w.Rows);
+			ArgMaxRange(a, rows, w, unquant, preparedBias, excluded, scratch, 0, 0, w.Rows);
 		else
-			ArgMaxParallel(a, rows, w, unquant, preparedBias, excluded, scratch, kernel, chunks, partitions);
+			ArgMaxParallel(a, rows, w, unquant, preparedBias, excluded, scratch, chunks, partitions);
 		// Increasing partition order is increasing vocabulary order, preserving first-wins ties.
 		for (int c = 1; c < chunks; c++)
 		{
@@ -73,22 +73,22 @@ internal static partial class Int8Gemm
 	}
 
 	static void ArgMaxParallel(QuantizedActivations a, int rows, QuantizedMatrix w, float unquant,
-		float[] preparedBias, int excluded, ArgMaxScratch scratch, Int8Kernel kernel, int chunks, int partitions)
+		float[] preparedBias, int excluded, ArgMaxScratch scratch, int chunks, int partitions)
 	{
 		Parallel.For(0, chunks, c =>
 		{
 			int start = partitions * c / chunks;
 			int end = partitions * (c + 1) / chunks;
 			int panelWidth = Math.Max(1, w.PanelWidth);
-			ArgMaxRange(a, rows, w, unquant, preparedBias, excluded, scratch, kernel, c * rows,
+			ArgMaxRange(a, rows, w, unquant, preparedBias, excluded, scratch, c * rows,
 				start * panelWidth, Math.Min(w.Rows, end * panelWidth));
 		});
 	}
 
 	static void ArgMaxRange(QuantizedActivations a, int rows, QuantizedMatrix w, float unquant,
-		float[] preparedBias, int excluded, ArgMaxScratch scratch, Int8Kernel kernel, int chunkBase, int start, int end)
+		float[] preparedBias, int excluded, ArgMaxScratch scratch, int chunkBase, int start, int end)
 	{
-		if (Avx2.IsSupported && kernel == Int8Kernel.X86 && w.IsPacked)
+		if (Avx2.IsSupported && w.IsPacked)
 			ArgMaxX86Range(a, rows, w, unquant, preparedBias, excluded, scratch, chunkBase, start, end);
 		else if (w.IsPacked)
 		{
@@ -97,7 +97,7 @@ internal static partial class Int8Gemm
 			ArgMaxPackedRange(a, rows, w, unquant, preparedBias, excluded, scratch, chunkBase, start, end);
 		}
 		else
-			ArgMaxRowMajorRange(a, rows, w, unquant, preparedBias, excluded, scratch, kernel, chunkBase, start, end);
+			ArgMaxRowMajorRange(a, rows, w, unquant, preparedBias, excluded, scratch, chunkBase, start, end);
 	}
 
 	static void ArgMaxPackedRange(QuantizedActivations a, int rows, QuantizedMatrix w, float unquant,
@@ -200,7 +200,7 @@ internal static partial class Int8Gemm
 	// Rows are processed in blocks small enough to stay in L1 cache while the weight rows
 	// stream through; each weight vector load is shared by up to four activation rows.
 	static void ArgMaxRowMajorRange(QuantizedActivations a, int rows, QuantizedMatrix w, float unquant, float[] preparedBias,
-		int excluded, ArgMaxScratch scratch, Int8Kernel kernel, int chunkBase, int start, int end)
+		int excluded, ArgMaxScratch scratch, int chunkBase, int start, int end)
 	{
 		int width = w.Cols;
 		Span<int> sums = stackalloc int[8];
@@ -210,7 +210,7 @@ internal static partial class Int8Gemm
 			int blockEnd = Math.Min(rows, blockStart + rowBlock);
 			int j = start;
 			// A 4 x 2 tile shares activation loads between two output columns as well.
-			if (Dp.IsSupported && kernel == Int8Kernel.ArmDotProduct)
+			if (Dp.IsSupported)
 			{
 				for (; j + 1 < end; j += 2)
 				{
@@ -226,8 +226,8 @@ internal static partial class Int8Gemm
 							DotArm4x2(a.Values.AsSpan(r * width, 4 * width), w0, w1, sums);
 						else
 						{
-							Dot(a, r, count, w0, sums, kernel);
-							Dot(a, r, count, w1, sums[4..], kernel);
+							Dot(a, r, count, w0, sums);
+							Dot(a, r, count, w1, sums[4..]);
 						}
 						for (int k = 0; k < count; k++)
 						{
@@ -246,14 +246,14 @@ internal static partial class Int8Gemm
 				var weights = w.Data.AsSpan(row * width, width);
 				float b = preparedBias[row];
 				int shift = 127 * w.RowSums[row];
-				var pairs = RowPairs(w, row, kernel);
+				var pairs = RowPairs(w, row);
 				for (int r = blockStart; r < blockEnd; r += 4)
 				{
 					int count = Math.Min(4, blockEnd - r);
-					Dot(a, r, count, weights, sums, kernel);
+					Dot(a, r, count, weights, sums);
 					for (int k = 0; k < count; k++)
 					{
-						int sum = Avx2.IsSupported && kernel == Int8Kernel.X86 ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
+						int sum = Avx2.IsSupported ? sums[k] : sums[k] + shift + SaturationCorrection(a.Values.AsSpan((r + k) * width, width), weights, pairs);
 						scratch.Consider(chunkBase + r + k, j, sum * unquant + b, excluded);
 					}
 				}

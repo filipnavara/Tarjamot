@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using System.Security.Cryptography;
 using Tarjamot.Engine;
 using NUnit.Framework;
 
@@ -90,5 +92,47 @@ public class MarianMathTest
 		MarianMath.AttentionScoresPair(q, keys, headDim, padded, scale, actual);
 
 		Assert.That(actual.Select(BitConverter.SingleToInt32Bits), Is.EqualTo(expected.Select(BitConverter.SingleToInt32Bits)));
+	}
+
+	// SHA-256 of the embeddings of positions 0-1023, computed with musl's expf, sinf and cosf called
+	// separately per value, as Marian does.
+	[TestCase(256, "1D2A9E67B884370F28ADCF0C1EB5736772C11C9588D7A1A6E604A71EB2AF6690")]
+	[TestCase(384, "3423C53E4C9C5FB3AFC3FBD9BA65DF6C65BF55FF0723C46EEA374D0B088858F5")]
+	[TestCase(512, "0E8E4CA6F1850FF18FE8049A968650D17F5A2EA8D2C2AB1D14EF0A9C1FC6DD45")]
+	public void PositionEmbeddingsHaveMuslBits(int dim, string expected)
+	{
+		if (typeof(MarianMath).Assembly.GetType("Tarjamot.Engine.MuslMath") is null)
+			Assert.Ignore("Built with the platform's math (TarjamotPlatformMath).");
+		var scales = MarianMath.PositionScales(dim);
+		using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+		for (int position = 0; position < 1024; position++)
+			hash.AppendData(MemoryMarshal.AsBytes(MarianMath.PositionEmbedding(position, scales).AsSpan()));
+
+		Assert.That(Convert.ToHexString(hash.GetHashAndReset()), Is.EqualTo(expected));
+	}
+
+	[Test]
+	public void SinCosOfSpanMatchesScalar()
+	{
+		// A spread of float bit patterns up to the large-argument limit, and both sides of every
+		// threshold of musl's sincosf.
+		var bits = new List<uint>();
+		for (uint b = 0; b < 0x4dc90fdb; b += 4099)
+			bits.Add(b);
+		foreach (uint threshold in new uint[] { 0x39800000, 0x3f490fda, 0x4016cbe3, 0x407b53d1, 0x40afeddf, 0x40e231d5 })
+			bits.AddRange([threshold - 1, threshold, threshold + 1]);
+		bits.AddRange([0x4dc90fd9, 0x4dc90fda]);
+		var x = bits.Select(BitConverter.UInt32BitsToSingle).ToArray();
+		var expectedSin = new float[x.Length];
+		var expectedCos = new float[x.Length];
+		for (int i = 0; i < x.Length; i++)
+			MarianMath.SinCos(x[i], out expectedSin[i], out expectedCos[i]);
+		var sin = new float[x.Length];
+		var cos = new float[x.Length];
+
+		MarianMath.SinCos(x, sin, cos);
+
+		Assert.That(sin.Select(BitConverter.SingleToInt32Bits), Is.EqualTo(expectedSin.Select(BitConverter.SingleToInt32Bits)));
+		Assert.That(cos.Select(BitConverter.SingleToInt32Bits), Is.EqualTo(expectedCos.Select(BitConverter.SingleToInt32Bits)));
 	}
 }

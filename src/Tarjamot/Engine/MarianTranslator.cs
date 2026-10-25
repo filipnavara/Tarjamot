@@ -16,7 +16,7 @@ namespace Tarjamot.Engine;
 /// A worker: it translates one batch at a time with its own work buffers; the weights are shared
 /// (see <see cref="MarianEngine"/>).
 /// </summary>
-internal sealed record MarianTranslatorOptions(Int8Kernel Kernel, bool Parallel);
+internal sealed record MarianTranslatorOptions(bool Parallel);
 
 internal sealed class MarianTranslator
 {
@@ -167,12 +167,12 @@ internal sealed class MarianTranslator
 	{
 		var input = hidden.AsSpan(0, rows * outputWeights.Cols);
 		float alpha = outputWeights.Alpha != 0f ? outputWeights.Alpha : 127f / TensorPrimitives.MaxMagnitude<float>(input);
-		Int8Gemm.Quantize(input, alpha, quantized, options.Kernel);
+		Int8Gemm.Quantize(input, alpha, quantized);
 		var prepared = outputWeights.Alpha != 0f
 			? weights.GetPreparedBias(outputWeights)
 			: Int8Gemm.PrepareBias(outputWeights, alpha, outputBias.Data);
 		return Int8Gemm.MultiplyArgMax(quantized, rows, outputWeights, 1f / (alpha * outputWeights.QuantMult),
-			prepared, targetVocab.UnkId, outputWinners, options.Kernel, options.Parallel);
+			prepared, targetVocab.UnkId, outputWinners, options.Parallel);
 	}
 
 	int ArgMax(ReadOnlySpan<float> logits, int[] candidates)
@@ -412,11 +412,11 @@ internal sealed class MarianTranslator
 		var input = x.AsSpan(0, rows * matrix.Cols);
 		// Without a precomputed alpha, Marian derives the multiplier from the activations.
 		float alpha = matrix.Alpha != 0f ? matrix.Alpha : 127f / TensorPrimitives.MaxMagnitude<float>(input);
-		Int8Gemm.Quantize(input, alpha, quantized, options.Kernel);
+		Int8Gemm.Quantize(input, alpha, quantized);
 		var prepared = matrix.Alpha != 0f
 			? weights.GetPreparedBias(matrix)
 			: Int8Gemm.PrepareBias(matrix, alpha, bias?.Data);
-		Int8Gemm.Multiply(quantized, rows, matrix, weightRows, 1f / (alpha * matrix.QuantMult), prepared, y, options.Kernel, options.Parallel);
+		Int8Gemm.Multiply(quantized, rows, matrix, weightRows, 1f / (alpha * matrix.QuantMult), prepared, y, options.Parallel);
 	}
 
 	static float[] Ensure(ref float[] buffer, int size)

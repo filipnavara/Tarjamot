@@ -32,9 +32,10 @@ jobs:
           - { name: linux-arm64, os: ubuntu-24.04-arm, models: true }
           - { name: windows-x64, os: windows-latest, models: true }
           - { name: macos-arm64, os: macos-latest, models: true }
-          # Instruction-set fallbacks, unit tests only.
+          # Instruction-set fallbacks, unit tests only, except that one portable job translates with
+          # the models too (the portable kernel runs only under these switches).
           - { name: linux-x64-avx2, os: ubuntu-latest, flags: DOTNET_EnableAVX512=0 }
-          - { name: linux-x64-portable, os: ubuntu-latest, flags: DOTNET_EnableAVX2=0 }
+          - { name: linux-x64-portable, os: ubuntu-latest, flags: DOTNET_EnableAVX2=0, models: true }
           - { name: linux-arm64-portable, os: ubuntu-24.04-arm, flags: DOTNET_EnableArm64Dp=0 }
           - { name: linux-x64-scalar, os: ubuntu-latest, flags: DOTNET_EnableHWIntrinsic=0 }
     steps:
