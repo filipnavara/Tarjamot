@@ -190,8 +190,8 @@ the difference.
 
 ## Variants and validation
 
-Run each case with the default kernel on baseline and candidate. `--portable`
-is a correctness/fallback diagnostic, not the performance baseline for a new x86
+Run each case with the default kernel on baseline and candidate. The portable
+kernel (`DOTNET_EnableAVX2=0`) is a correctness/fallback diagnostic, not the performance baseline for a new x86
 optimization. In fresh shell sessions, repeat with these runtime feature limits:
 
 | Variant | Environment setting before starting dotnet |

@@ -422,8 +422,15 @@ Zen 5 does not report; .NET 11 adds `AvxVnni.V512`. A microbenchmark of the AVX-
 Zen 5 core for 4 to 64 activation rows, about 80% of the two vector multiply ports.
 
 The `IsSupported` checks appear directly at each dispatch site, rather than behind a helper
-property, so the JIT drops the other platforms' branches even in tier 0. The `Int8Kernel` value
-still selects the portable kernel when `UsePortableKernel` is set.
+property, so the JIT drops the other platforms' branches even in tier 0. There is no runtime
+kernel choice: the portable kernel runs where the CPU has neither, or with the runtime switches
+`DOTNET_EnableArm64Dp=0` and `DOTNET_EnableAVX2=0`, which is how the tests and the output checks
+cover it. (An `Int8Kernel` value and `TranslationOptions.UsePortableKernel` used to select it on
+any CPU; the products tested that value in their loops.) Removing the value changed no output and
+no warm time measurably (Apple M5, one thread, 6-8 alternating runs: cs-en with and without the
+shortlist within 1%, the portable kernel within 2%). `DOTNET_EnableArm64Dp=0` itself makes the
+same portable code about 4% slower than the old option did, so compare portable timings only
+under the same switch.
 
 Two further changes apply to all platforms. Attention scores and attention-weighted values
 use `Vector512`/`Vector256` where available. Each lane is still one key or one output column

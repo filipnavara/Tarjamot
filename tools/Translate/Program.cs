@@ -14,7 +14,7 @@ const string Usage = """
 	      Downloads the models for a direction (two models when pivoting through English).
 	  Translate installed
 	      Lists the downloaded language pairs.
-	  Translate <from> <to> [text...] [--input <file>] [--html | --html-json] [--projected] [--shortlist] [--single-thread] [--across-sentences] [--portable] [--no-split] [--benchmark <runs>]
+	  Translate <from> <to> [text...] [--input <file>] [--html | --html-json] [--projected] [--shortlist] [--single-thread] [--across-sentences] [--no-split] [--benchmark <runs>]
 	      Translates the text, the input file, or standard input when neither is given (UTF-8).
 	      Models must be downloaded.
 
@@ -24,7 +24,6 @@ const string Usage = """
 	  --shortlist            Restrict the vocabulary with the lexical shortlist (faster, Firefox does not).
 	  --single-thread        Run the matrix products on one thread.
 	  --across-sentences     Translate batches of sentences on all threads at once (faster, more CPU).
-	  --portable             Use the portable int8 kernel instead of a platform-specific one.
 	  --no-split             Translate each input line as one sentence.
 	  --html                 The text is an HTML fragment; its markup is kept around the translated words.
 	  --html-json            The text is a JSON array of HTML fragments; prints a JSON array of translations.
@@ -32,6 +31,8 @@ const string Usage = """
 	                         algorithm (BergamotMarkupTranslator from Tarjamot.BergamotMarkup).
 	  --benchmark <runs>     Translate repeatedly and report the speed.
 	  --mobile               Select the models published for Android.
+
+	The portable int8 kernel runs with DOTNET_EnableArm64Dp=0 (ARM) or DOTNET_EnableAVX2=0 (x86).
 	""";
 
 // Windows consoles default to the OEM code page, which garbles redirected input and output.
@@ -45,7 +46,6 @@ var benchmarkRuns = int.Parse(TakeOption(arguments, "--benchmark") ?? "0");
 bool useShortlist = TakeFlag(arguments, "--shortlist");
 bool singleThread = TakeFlag(arguments, "--single-thread");
 bool acrossSentences = TakeFlag(arguments, "--across-sentences");
-bool portable = TakeFlag(arguments, "--portable");
 bool noSplit = TakeFlag(arguments, "--no-split");
 bool html = TakeFlag(arguments, "--html");
 bool htmlJson = TakeFlag(arguments, "--html-json");
@@ -122,7 +122,6 @@ async Task TranslateAsync(string from, string to, string text)
 	{
 		UseShortlist = useShortlist,
 		Parallelism = singleThread ? TranslationParallelism.None : acrossSentences ? TranslationParallelism.AcrossSentences : TranslationParallelism.WithinProducts,
-		UsePortableKernel = portable,
 		SplitSentences = !noSplit,
 		MarkupTranslator = projected ? ProjectedMarkupTranslator.Instance : BergamotMarkupTranslator.Instance,
 	};

@@ -23,7 +23,7 @@ internal sealed partial class MarianWeights
 	readonly float[] positionScales;
 	volatile float[][] positions = [];
 
-	public MarianWeights(MarianModel model, Int8Kernel kernel, bool useShortlist)
+	public MarianWeights(MarianModel model, bool useShortlist)
 	{
 		bool shared = model.HasMatrix("Wemb");
 		SourceEmbeddings = model.Matrix(shared ? "Wemb" : "encoder_Wemb");
@@ -33,7 +33,7 @@ internal sealed partial class MarianWeights
 		// embeddings) for the full vocabulary, the unnamed ("none") shortlist selection otherwise.
 		// A lexical shortlist gathers scattered weight rows, which are faster in row-major
 		// layout. Keep only the layout used by this engine, rather than caching both copies.
-		OutputWeights = CreateOutputWeights(TargetEmbeddings, TargetEmbeddings.Alpha, useShortlist ? 0 : Int8Gemm.PanelWidth(kernel), Int8Gemm.UsesSaturationMetadata(kernel));
+		OutputWeights = CreateOutputWeights(TargetEmbeddings, TargetEmbeddings.Alpha, useShortlist ? 0 : Int8Gemm.PanelWidth, Int8Gemm.UsesSaturationMetadata);
 		OutputWeightsShortlist = OutputWeights with { Alpha = model.UnnamedAlpha };
 		Dim = TargetEmbeddings.Cols;
 		positionScales = MarianMath.PositionScales(Dim);

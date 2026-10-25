@@ -17,7 +17,6 @@ public class OutputProjectionTest
 	[TestCaseSource(nameof(Shapes))]
 	public void WinnersMatchMultiplyIncludingSaturationAndTails(int rows, int width, int outputs, string mode, bool parallel)
 	{
-		var kernel = Kernel(mode);
 		var random = new Random(137 + rows + width + outputs);
 		var input = Enumerable.Range(0, rows * width).Select(_ => (sbyte)random.Next(-127, 128)).ToArray();
 		var data = Enumerable.Range(0, outputs * width).Select(_ => (sbyte)random.Next(-128, 128)).ToArray();
@@ -32,16 +31,16 @@ public class OutputProjectionTest
 		var bias = Int8Gemm.PrepareBias(weights, weights.Alpha, Enumerable.Range(0, outputs).Select(_ => random.NextSingle() - 0.5f).ToArray());
 		float unquant = 1f / (weights.Alpha * weights.QuantMult);
 		var logits = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, weights, null, unquant, bias, logits, kernel, parallel);
+		Int8Gemm.Multiply(activations, rows, weights, null, unquant, bias, logits, parallel);
 		var scratch = new ArgMaxScratch();
 		foreach (int excluded in new[] { 0, outputs - 1, -1 })
 		{
-			Assert.That(Int8Gemm.MultiplyArgMax(activations, rows, weights, unquant, bias, excluded, scratch, kernel, parallel).ToArray(),
+			Assert.That(Int8Gemm.MultiplyArgMax(activations, rows, weights, unquant, bias, excluded, scratch, parallel).ToArray(),
 				Is.EqualTo(ReferenceWinners(logits, rows, outputs, excluded)));
 		}
 		// Reuse after a larger invocation must reset every winner and only expose logical rows.
 		Array.Fill(bias, float.NegativeInfinity);
-		Assert.That(Int8Gemm.MultiplyArgMax(activations, 1, weights, unquant, bias, -1, scratch, kernel, parallel).ToArray(), Is.EqualTo(new[] { -1 }));
+		Assert.That(Int8Gemm.MultiplyArgMax(activations, 1, weights, unquant, bias, -1, scratch, parallel).ToArray(), Is.EqualTo(new[] { -1 }));
 		Assert.That(scratch.RetainedBytes, Is.LessThan(48 + 16L * rows * Math.Max(1, Environment.ProcessorCount * 4)));
 	}
 
@@ -56,7 +55,6 @@ public class OutputProjectionTest
 	[TestCaseSource(nameof(ExceptionalCases))]
 	public void ExceptionalScoresAndParallelTiesPreserveFirstWinner(string scenario, int expected, string mode, bool parallel)
 	{
-		var kernel = Kernel(mode);
 		const int rows = 17, width = 512, outputs = 4099;
 		var weights = Layout(QuantizedMatrix.Create(new sbyte[outputs * width], outputs, width, 1f, 1f), mode);
 		var activations = Activations(new sbyte[rows * width]);
@@ -72,8 +70,8 @@ public class OutputProjectionTest
 			case "partitionTies": bias[1023] = bias[1024] = 10f; break;
 		}
 		var logits = new float[rows * outputs];
-		Int8Gemm.Multiply(activations, rows, weights, null, 1f, bias, logits, kernel, parallel);
-		var winners = Int8Gemm.MultiplyArgMax(activations, rows, weights, 1f, bias, excluded, new ArgMaxScratch(), kernel, parallel).ToArray();
+		Int8Gemm.Multiply(activations, rows, weights, null, 1f, bias, logits, parallel);
+		var winners = Int8Gemm.MultiplyArgMax(activations, rows, weights, 1f, bias, excluded, new ArgMaxScratch(), parallel).ToArray();
 		Assert.That(winners, Is.All.EqualTo(expected));
 		Assert.That(winners, Is.EqualTo(ReferenceWinners(logits, rows, outputs, excluded)));
 	}
@@ -82,28 +80,24 @@ public class OutputProjectionTest
 	public void EmptyVocabularyAndRowsHaveNoWinners()
 	{
 		var weights = QuantizedMatrix.Create([], 0, 16, 1f, 1f);
-		var activations = new QuantizedActivations { Values = new sbyte[48], Widened = new short[48] };
+		var activations = new QuantizedActivations { Values = new sbyte[48], Widened = new short[48], Shifted = new byte[48] };
 		var scratch = new ArgMaxScratch();
-		Assert.That(Int8Gemm.MultiplyArgMax(activations, 3, weights, 1f, [], -1, scratch, Int8Kernel.Portable, true).ToArray(), Is.EqualTo(new[] { -1, -1, -1 }));
-		Assert.That(Int8Gemm.MultiplyArgMax(activations, 0, weights, 1f, [], -1, scratch, Int8Kernel.Portable, true).ToArray(), Is.Empty);
+		Assert.That(Int8Gemm.MultiplyArgMax(activations, 3, weights, 1f, [], -1, scratch, true).ToArray(), Is.EqualTo(new[] { -1, -1, -1 }));
+		Assert.That(Int8Gemm.MultiplyArgMax(activations, 0, weights, 1f, [], -1, scratch, true).ToArray(), Is.Empty);
 	}
 
-	static readonly string[] Modes = ["portable", "raw", "packed", "x86raw", "x86packed"];
+	// Row-major weights (the shortlist, and every product of the portable kernel) and the packed
+	// panels of this machine's kernel.
+	static readonly string[] Modes = ["raw", "packed"];
 
-	static Int8Kernel Kernel(string mode)
+	static QuantizedMatrix Layout(QuantizedMatrix weights, string mode)
 	{
-		if (mode == "portable") return Int8Kernel.Portable;
-		if (mode.StartsWith("x86"))
-		{
-			if (Int8Gemm.DefaultKernel != Int8Kernel.X86) Assert.Ignore("x86 AVX2 instructions are unavailable.");
-			return Int8Kernel.X86;
-		}
-		if (Int8Gemm.DefaultKernel != Int8Kernel.ArmDotProduct) Assert.Ignore("ARM dot-product instructions are unavailable.");
-		return Int8Kernel.ArmDotProduct;
+		if (mode == "raw")
+			return weights;
+		if (Int8Gemm.PanelWidth == 0)
+			Assert.Ignore("The portable kernel uses only row-major weights.");
+		return weights.Pack(Int8Gemm.PanelWidth);
 	}
-
-	static QuantizedMatrix Layout(QuantizedMatrix weights, string mode) =>
-		mode.EndsWith("packed") ? weights.Pack(Int8Gemm.PanelWidth(Kernel(mode))) : weights;
 
 	static QuantizedActivations Activations(sbyte[] input) => new()
 	{

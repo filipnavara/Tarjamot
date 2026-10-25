@@ -99,7 +99,17 @@ internal sealed class MarianModel
 		}
 	}
 
-	public MarianModel(Stream stream, Int8Kernel kernel)
+	public MarianModel(Stream stream)
+		: this(stream, Int8Gemm.PanelWidth, Int8Gemm.UsesSaturationMetadata)
+	{
+	}
+
+	/// <summary>
+	/// Loads the matrices with the layout of the given panel width and, when
+	/// <paramref name="saturation"/>, their saturating pairs; the other constructor uses this
+	/// machine's kernel.
+	/// </summary>
+	internal MarianModel(Stream stream, int panelWidth, bool saturation)
 	{
 		if (!stream.CanRead || !stream.CanSeek)
 			throw new ArgumentException("A readable, seekable model stream is required.", nameof(stream));
@@ -183,8 +193,8 @@ internal sealed class MarianModel
 					float quantMult = reader.ReadSingle();
 					stream.Position = itemStart;
 					matrices[name] = QuantizedMatrix.CreateRows(embedding ? rows : cols, embedding ? cols : rows, quantMult, 0f,
-						embedding ? 0 : Int8Gemm.PanelWidth(kernel), (row, _) => stream.ReadExactly(MemoryMarshal.AsBytes(row)),
-						saturation: !embedding && Int8Gemm.UsesSaturationMetadata(kernel), rowSums: !embedding);
+						embedding ? 0 : panelWidth, (row, _) => stream.ReadExactly(MemoryMarshal.AsBytes(row)),
+						saturation: !embedding && saturation, rowSums: !embedding);
 					stream.Position = itemStart + headers[i].DataLength;
 					break;
 				default:
