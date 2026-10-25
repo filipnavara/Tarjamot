@@ -9,8 +9,14 @@ Guidance for coding agents working in this repository.
 - `src/Tarjamot.BergamotMarkup`: Bergamot's HTML mode (NuGet package `Tarjamot.BergamotMarkup`,
   MPL-2.0), which matches Firefox. It uses the engine's internals, so it depends on exactly the
   same version.
+- `src/Tarjamot.LanguageIdentification`: language identification (NuGet package
+  `Tarjamot.LanguageIdentification`, MIT): naive Bayes over character n-grams with NTextCat
+  profiles. It does not reference the translation engine; keep it that way.
 - `tests/Tarjamot.Tests`: NUnit tests. `ExternalServices` tests download models from Mozilla;
   set `TARJAMOT_TEST_MODELS` to keep them in a fixed directory.
+- `tests/Tarjamot.LanguageIdentification.Tests`: NUnit tests of the language identification, with
+  small profiles built in the tests.
+- `tools/LanguageProfiles`: downloads Wikipedia text and builds language identification profiles.
 - `tools/Translate`: command-line translation. `tools/Benchmark`: benchmark harness,
   microbenchmarks and scripts. `tools/MarkupComparison`: compares the two HTML modes.
 - `docs/`: performance notes and measurements.
@@ -23,6 +29,7 @@ dotnet test -c Release --filter "TestCategory!=ExternalServices"
 dotnet test -c Release
 dotnet pack src/Tarjamot -c Release -o artifacts
 dotnet pack src/Tarjamot.BergamotMarkup -c Release -o artifacts
+dotnet pack src/Tarjamot.LanguageIdentification -c Release -o artifacts
 dotnet publish tools/Translate -c Release -r osx-arm64 -p:PublishAot=true -o publish
 ```
 
@@ -47,7 +54,7 @@ Kernels depend on the CPU: run the tests with `DOTNET_EnableAVX512=0`, `DOTNET_E
 ## Releasing
 
 Versions come from Nerdbank.GitVersioning: `version.json` holds major.minor, the patch is the
-number of commits since it changed. Both packages get the same version. Builds of `main` are prereleases (`0.1.5-g1a2b3c4d`); a
+number of commits since it changed. All packages get the same version. Builds of `main` are prereleases (`0.1.5-g1a2b3c4d`); a
 `vX.Y.Z` tag on the same commit makes the public release `X.Y.Z`. To release, tag the commit with
 `dotnet nbgv tag <commit>` (the local tool in `dotnet-tools.json`, after `dotnet tool restore`) and push the tag. CI
 packs it and publishes it to nuget.org with Trusted Publishing (no API key in the repository).

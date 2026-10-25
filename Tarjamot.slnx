@@ -2,11 +2,14 @@
   <Folder Name="/src/">
     <Project Path="src/Tarjamot/Tarjamot.csproj" />
     <Project Path="src/Tarjamot.BergamotMarkup/Tarjamot.BergamotMarkup.csproj" />
+    <Project Path="src/Tarjamot.LanguageIdentification/Tarjamot.LanguageIdentification.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Tarjamot.LanguageIdentification.Tests/Tarjamot.LanguageIdentification.Tests.csproj" />
     <Project Path="tests/Tarjamot.Tests/Tarjamot.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/LanguageProfiles/LanguageProfiles.csproj" />
     <Project Path="tools/MarkupComparison/MarkupComparison.csproj" />
     <Project Path="tools/Translate/Translate.csproj" />
   </Folder>

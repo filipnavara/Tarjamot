@@ -62,6 +62,15 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF 
 IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+## NTextCat (MIT)
+
+https://github.com/ivanakcheurov/ntextcat. Copyright (c) Ivan Akcheurov.
+
+`src/Tarjamot.LanguageIdentification/LanguageIdentifier.cs` reads NTextCat's binary language
+profiles, extracts the same character n-grams (each word wrapped in underscores) and computes
+the scores of NTextCat's naive Bayes classifier with add-one smoothing, and the distance of its
+`DistributionDistanceCalculator`, with its own code and data structures.
+
 ## Marian (MIT)
 
 https://github.com/marian-nmt/marian-dev. Copyright (c) 2016 Marcin Junczys-Dowmunt, the
