@@ -10,5 +10,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Tarjamot.LanguageIdentification/Tarjamot.LanguageIdentification.csproj" />
+    <ProjectReference Include="../../src/Tarjamot.LanguageIdentification.Profiles/Tarjamot.LanguageIdentification.Profiles.csproj" />
   </ItemGroup>
 </Project>

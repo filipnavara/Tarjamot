@@ -3,8 +3,8 @@ using System.Text;
 namespace Tarjamot.LanguageIdentification;
 
 /// <summary>
-/// Naive Bayes language identifier over character n-grams. It reads NTextCat language profiles in their
-/// binary form and scores like NTextCat's naive Bayes identifier with add-one smoothing.
+/// Naive Bayes language identifier over character n-grams. It reads language profiles in eM Client's binary
+/// profile format and scores like NTextCat's naive Bayes identifier with add-one smoothing.
 /// </summary>
 /// <remarks>
 /// N-grams are packed into <see cref="ulong"/> keys (16 bits per character) stored in one sorted array shared by all
@@ -123,7 +123,7 @@ public sealed class LanguageIdentifier
 	}
 
 	/// <summary>
-	/// Loads language profiles in the binary NTextCat format: the maximum profile size, the maximum n-gram
+	/// Loads language profiles in eM Client's binary profile format: the maximum profile size, the maximum n-gram
 	/// length and the number of languages (32-bit integers), then for each language its ISO 639-2/T and
 	/// ISO 639-3 codes (length-prefixed strings), the total and distinct counts of the n-grams left out of the
 	/// profile, and groups of n-grams of one length (the length as a byte, the n-gram count, then each n-gram's
@@ -383,7 +383,7 @@ public sealed class LanguageIdentifier
 	/// <summary>
 	/// Allocation-free n-gram extraction producing packed keys. Every maximal run of letters is wrapped in
 	/// underscores ("_word_") and all its n-grams of 1 to <see cref="MaxNGramLength"/> characters are produced,
-	/// except the "_" unigram. This matches the n-grams the NTextCat profiles were trained on.
+	/// except the "_" unigram. These are the n-grams of NTextCat, which the format's profiles were first trained with.
 	/// </summary>
 	internal ref struct NGramEnumerator
 	{

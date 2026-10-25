@@ -3,8 +3,8 @@ using System.Text;
 namespace Tarjamot.LanguageIdentification;
 
 /// <summary>
-/// Counts the character n-grams of training text per language and writes the profiles in the binary NTextCat
-/// format that <see cref="LanguageIdentifier.Load"/> reads.
+/// Counts the character n-grams of training text per language and writes the profiles in eM Client's binary
+/// profile format that <see cref="LanguageIdentifier.Load"/> reads.
 /// </summary>
 /// <remarks>
 /// The n-grams are extracted exactly as <see cref="LanguageIdentifier"/> extracts them from the text it identifies.
@@ -70,7 +70,8 @@ public sealed class LanguageProfileBuilder
 			var kept = ranked.Take(MaximumSizeOfDistribution).ToList();
 			var noise = ranked.Skip(MaximumSizeOfDistribution).ToList();
 
-			// NTextCat stores an ISO 639-2/T and an ISO 639-3 code; both hold the language tag here.
+			// The format stores an ISO 639-2/T and an ISO 639-3 code, after NTextCat's profiles; both hold the language
+			// tag here.
 			writer.Write(language);
 			writer.Write(language);
 			writer.Write(checked((int)noise.Sum(e => e.Count)));

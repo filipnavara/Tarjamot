@@ -87,9 +87,10 @@ jobs:
           dotnet pack src/Tarjamot -c Release -o artifacts
           dotnet pack src/Tarjamot.BergamotMarkup -c Release -o artifacts
           dotnet pack src/Tarjamot.LanguageIdentification -c Release -o artifacts
+          dotnet pack src/Tarjamot.LanguageIdentification.Profiles -c Release -o artifacts
           # A release tag must name the version Nerdbank.GitVersioning computes (see nbgv tag).
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            for package in Tarjamot Tarjamot.BergamotMarkup Tarjamot.LanguageIdentification; do
+            for package in Tarjamot Tarjamot.BergamotMarkup Tarjamot.LanguageIdentification Tarjamot.LanguageIdentification.Profiles; do
               if [[ ! -f "artifacts/$package.${GITHUB_REF#refs/tags/v}.nupkg" ]]; then
                 echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match the version of $package: $(ls artifacts)"
                 exit 1

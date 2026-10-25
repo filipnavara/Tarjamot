@@ -3,7 +3,7 @@ using System.Text;
 namespace Tarjamot.LanguageIdentification.Tests;
 
 /// <summary>
-/// Builds small profiles in the binary NTextCat format and computes reference naive Bayes scores, with its own
+/// Builds small profiles in eM Client's binary profile format and computes reference naive Bayes scores, with its own
 /// n-gram counting so the tests do not depend on <see cref="LanguageIdentifier"/>'s extraction.
 /// </summary>
 internal static class TestProfile

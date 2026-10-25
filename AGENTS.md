@@ -10,8 +10,11 @@ Guidance for coding agents working in this repository.
   MPL-2.0), which matches Firefox. It uses the engine's internals, so it depends on exactly the
   same version.
 - `src/Tarjamot.LanguageIdentification`: language identification (NuGet package
-  `Tarjamot.LanguageIdentification`, MIT): naive Bayes over character n-grams with NTextCat
-  profiles. It does not reference the translation engine; keep it that way.
+  `Tarjamot.LanguageIdentification`, MIT): naive Bayes over character n-grams in the style of
+  NTextCat, with profiles in eM Client's binary format. It does not reference the translation engine; keep it that way.
+- `src/Tarjamot.LanguageIdentification.Profiles`: the prebuilt 55-language profile from Wikipedia,
+  embedded (NuGet package `Tarjamot.LanguageIdentification.Profiles`; the data is CC BY-SA 4.0).
+  Rebuild `wikipedia.dat` with `tools/LanguageProfiles` and update its README when it changes.
 - `tests/Tarjamot.Tests`: NUnit tests. `ExternalServices` tests download models from Mozilla;
   set `TARJAMOT_TEST_MODELS` to keep them in a fixed directory.
 - `tests/Tarjamot.LanguageIdentification.Tests`: NUnit tests of the language identification, with
@@ -30,6 +33,7 @@ dotnet test -c Release
 dotnet pack src/Tarjamot -c Release -o artifacts
 dotnet pack src/Tarjamot.BergamotMarkup -c Release -o artifacts
 dotnet pack src/Tarjamot.LanguageIdentification -c Release -o artifacts
+dotnet pack src/Tarjamot.LanguageIdentification.Profiles -c Release -o artifacts
 dotnet publish tools/Translate -c Release -r osx-arm64 -p:PublishAot=true -o publish
 ```
 
