@@ -12,4 +12,8 @@
     <ProjectReference Include="../../src/Tarjamot.LanguageIdentification/Tarjamot.LanguageIdentification.csproj" />
     <ProjectReference Include="../../src/Tarjamot.LanguageIdentification.Profiles/Tarjamot.LanguageIdentification.Profiles.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../src/Tarjamot.LanguageIdentification.Profiles/wikipedia.dat" Link="wikipedia.dat" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

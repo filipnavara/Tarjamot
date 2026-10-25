@@ -196,5 +196,80 @@ public class LanguageIdentifierTest
 		Assert.That(identifier.GetNGrams(text), Is.EquivalentTo(TestProfile.CountNGrams(text, 3).SelectMany(kv => Enumerable.Repeat(kv.Key, kv.Value))));
 	}
 
+	[Test]
+	public void LoadsTheTablesItWrites()
+	{
+		var tables = Tables(identifier);
+		var loaded = LanguageIdentifier.LoadTables(tables);
+		Assert.That(loaded.Languages, Is.EqualTo(identifier.Languages));
+		Assert.That(loaded.MaxNGramLength, Is.EqualTo(identifier.MaxNGramLength));
+		Assert.That(loaded.MaximumSizeOfDistribution, Is.EqualTo(identifier.MaximumSizeOfDistribution));
+		Assert.That(loaded.TableSize, Is.EqualTo(tables.Length));
+		Assert.That(Tables(loaded), Is.EqualTo(tables));
+		AssertSameResults(loaded, identifier);
+	}
+
+	[Test]
+	public void UsesTablesAtAnyAlignment()
+	{
+		var tables = Tables(identifier);
+		var shifted = new byte[tables.Length + 3];
+		tables.CopyTo(shifted, 3);
+		AssertSameResults(LanguageIdentifier.LoadTables(shifted.AsMemory(3)), identifier);
+	}
+
+	[Test]
+	public void TablesKeepScriptDecidedLanguagesWhenAsked()
+	{
+		var scoring = LanguageIdentifier.Load(new MemoryStream(profile), dropScriptDecidedLanguages: false);
+		AssertSameResults(LanguageIdentifier.LoadTables(Tables(scoring)), scoring);
+	}
+
+	[Test]
+	public void RejectsInvalidTables()
+	{
+		var tables = Tables(identifier);
+		Assert.That(() => LanguageIdentifier.LoadTables(profile), Throws.TypeOf<InvalidDataException>());
+		Assert.That(() => LanguageIdentifier.LoadTables(tables.AsMemory(0, tables.Length - 1)), Throws.TypeOf<InvalidDataException>());
+		Assert.That(() => LanguageIdentifier.LoadTables(tables.AsMemory(0, 100)), Throws.TypeOf<InvalidDataException>());
+		Assert.That(() => LanguageIdentifier.LoadTables(Array.Empty<byte>()), Throws.TypeOf<InvalidDataException>());
+	}
+
+	[Test]
+	public void IdentifiesIntoASpanWithoutAllocating()
+	{
+		const string text = "Thank you for your message, I will reply soon.";
+		var destination = new (int Language, double Score)[identifier.Languages.Count];
+		int count = identifier.Identify(text, destination);
+		Assert.That(destination[..count], Is.EqualTo(identifier.Identify(text)));
+
+		long before = GC.GetAllocatedBytesForCurrentThread();
+		identifier.Identify(text, destination);
+		Assert.That(GC.GetAllocatedBytesForCurrentThread() - before, Is.Zero);
+	}
+
+	[Test]
+	public void RejectsATooShortDestination()
+	{
+		Assert.That(() => identifier.Identify("Thank you for the document.", new (int, double)[2]), Throws.ArgumentException);
+	}
+
+	private static byte[] Tables(LanguageIdentifier identifier)
+	{
+		using var stream = new MemoryStream();
+		identifier.WriteTables(stream);
+		return stream.ToArray();
+	}
+
+	private static void AssertSameResults(LanguageIdentifier actual, LanguageIdentifier expected)
+	{
+		foreach (var text in new[] { "Thank you for your message, I will reply soon.", "Vielen Dank, ich werde antworten.", Greek, Russian, "\u8C22\u8C22\u6211\u4EEC\u7684\u670B\u53CB", "12345" })
+		{
+			Assert.That(actual.Identify(text), Is.EqualTo(expected.Identify(text)), text);
+			for (int language = 0; language < expected.Languages.Count; language++)
+				Assert.That(actual.CalculateDistance(language, text), Is.EqualTo(expected.CalculateDistance(language, text)), text);
+		}
+	}
+
 	private static int IndexOf(string language) => identifier.Languages.ToList().IndexOf(language);
 }

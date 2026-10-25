@@ -6,7 +6,7 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>Tarjamot.LanguageIdentification</PackageId>
-    <Description>Compact language identification in pure .NET: naive Bayes over character n-grams in the style of NTextCat, about 0.65 MB in memory for 55 languages, Unicode script prefiltering, and a profile builder. Independent of the Tarjamot translation engine.</Description>
+    <Description>Compact language identification in pure .NET: naive Bayes over character n-grams in the style of NTextCat, 0.6 MB of tables for 55 languages that can be used in place, Unicode script prefiltering, and a profile builder. Independent of the Tarjamot translation engine.</Description>
     <PackageTags>language-identification;language-detection;ngram;naive-bayes;ntextcat</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>

@@ -15,6 +15,9 @@
     <Project Path="tools/Translate/Translate.csproj" />
   </Folder>
   <Folder Name="/tools/Benchmark/" />
+  <Folder Name="/tools/Benchmark/LanguageIdentification/">
+    <Project Path="tools/Benchmark/LanguageIdentification/LanguageIdentificationBenchmark.csproj" />
+  </Folder>
   <Folder Name="/tools/Benchmark/Harness/">
     <Project Path="tools/Benchmark/Harness/TarjamotHarness.csproj" />
   </Folder>

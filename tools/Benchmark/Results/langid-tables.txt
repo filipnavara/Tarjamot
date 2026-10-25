@@ -1,0 +1,33 @@
+# LanguageIdentificationBenchmark, net10.0, Windows x64. baseline = 9dec5d7 (embedded wikipedia.dat parsed on load),
+# tables = embedded wikipedia.tables used in place, Telugu decided by its script. The first "en array" line includes warmup.
+# baseline load (embedded wikipedia.dat, parsed)
+first_ms=54.328 median_rest_ms=32.528 allocated_bytes=20095840 live_bytes=652080 table_bytes=643960
+first_ms=53.249 median_rest_ms=33.309 allocated_bytes=20087984 live_bytes=652080 table_bytes=643960
+# baseline load wikipedia.dat
+first_ms=53.377 median_rest_ms=30.360 allocated_bytes=20089720 live_bytes=648696 table_bytes=643960
+# tables load (embedded wikipedia.tables, in place)
+first_ms=1.522 median_rest_ms=0.001 allocated_bytes=2528 live_bytes=2712 table_bytes=616546
+first_ms=1.240 median_rest_ms=0.001 allocated_bytes=2528 live_bytes=2712 table_bytes=616546
+# tables load wikipedia.dat
+first_ms=53.298 median_rest_ms=36.711 allocated_bytes=5720904 live_bytes=622536 table_bytes=616546
+first_ms=53.173 median_rest_ms=29.905 allocated_bytes=5720904 live_bytes=622536 table_bytes=616546
+# baseline identify
+en       array chars=   61 us_per_call=  10.094 allocated_bytes_per_call=1789
+de       array chars=   68 us_per_call=   6.083 allocated_bytes_per_call=1744
+cs       array chars=   38 us_per_call=   2.976 allocated_bytes_per_call=1744
+ja       array chars=   30 us_per_call=   1.323 allocated_bytes_per_call=576
+ko       array chars=   26 us_per_call=   0.292 allocated_bytes_per_call=112
+en-long  array chars= 3720 us_per_call= 313.412 allocated_bytes_per_call=1744
+# tables identify (embedded)
+en       array chars=   61 us_per_call=   7.915 allocated_bytes_per_call=632
+en       span  chars=   61 us_per_call=   3.721 allocated_bytes_per_call=0
+de       array chars=   68 us_per_call=   4.191 allocated_bytes_per_call=632
+de       span  chars=   68 us_per_call=   4.161 allocated_bytes_per_call=0
+cs       array chars=   38 us_per_call=   2.117 allocated_bytes_per_call=632
+cs       span  chars=   38 us_per_call=   2.063 allocated_bytes_per_call=0
+ja       array chars=   30 us_per_call=   1.010 allocated_bytes_per_call=40
+ja       span  chars=   30 us_per_call=   1.005 allocated_bytes_per_call=0
+ko       array chars=   26 us_per_call=   0.279 allocated_bytes_per_call=40
+ko       span  chars=   26 us_per_call=   0.254 allocated_bytes_per_call=0
+en-long  array chars= 3720 us_per_call= 206.143 allocated_bytes_per_call=632
+en-long  span  chars= 3720 us_per_call= 206.020 allocated_bytes_per_call=0

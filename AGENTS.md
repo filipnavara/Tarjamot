@@ -14,14 +14,17 @@ Guidance for coding agents working in this repository.
   NTextCat, with profiles in eM Client's binary format. It does not reference the translation engine; keep it that way.
 - `src/Tarjamot.LanguageIdentification.Profiles`: the prebuilt 55-language profile from Wikipedia,
   embedded (NuGet package `Tarjamot.LanguageIdentification.Profiles`; the data is CC BY-SA 4.0).
-  Rebuild `wikipedia.dat` with `tools/LanguageProfiles` and update its README when it changes.
+  Rebuild `wikipedia.dat` with `tools/LanguageProfiles` and update its README when it changes; the
+  package embeds `wikipedia.tables`, written from it with `LanguageProfiles tables` (a test checks
+  that they match), so rewrite it after changing the profile or the tables format.
 - `tests/Tarjamot.Tests`: NUnit tests. `ExternalServices` tests download models from Mozilla;
   set `TARJAMOT_TEST_MODELS` to keep them in a fixed directory.
 - `tests/Tarjamot.LanguageIdentification.Tests`: NUnit tests of the language identification, with
   small profiles built in the tests.
 - `tools/LanguageProfiles`: downloads Wikipedia text and builds language identification profiles.
 - `tools/Translate`: command-line translation. `tools/Benchmark`: benchmark harness,
-  microbenchmarks and scripts. `tools/MarkupComparison`: compares the two HTML modes.
+  microbenchmarks and scripts, and `LanguageIdentification`: load time, allocations and retained
+  memory of the language identification. `tools/MarkupComparison`: compares the two HTML modes.
 - `docs/`: performance notes and measurements.
 
 ## Commands
