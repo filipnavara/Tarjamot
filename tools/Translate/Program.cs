@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Tarjamot;
 
 // Command-line front end for Tarjamot: local translation with the
@@ -129,11 +130,11 @@ async Task TranslateAsync(string from, string to, string text)
 	if (translator.FindRoute(from, to) is not { } route)
 		throw new NotSupportedException($"The models from {from} to {to} are not downloaded; run: Translate download {from} {to}");
 
-	var fragments = htmlJson ? JsonSerializer.Deserialize<string[]>(text) ?? [] : [text];
+	var fragments = htmlJson ? JsonSerializer.Deserialize(text, TranslateJson.Default.StringArray) ?? [] : [text];
 	var stopwatch = Stopwatch.StartNew();
 	var result = await TranslateOnceAsync();
 	Console.Error.WriteLine($"Translated with {string.Join(" + ", route)} in {stopwatch.ElapsedMilliseconds} ms (including model loading)");
-	Console.WriteLine(htmlJson ? JsonSerializer.Serialize(result, new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = true }) : result[0]);
+	Console.WriteLine(htmlJson ? JsonSerializer.Serialize(result, TranslateJson.Output.StringArray) : result[0]);
 
 	if (benchmarkRuns <= 0)
 		return;
@@ -163,3 +164,10 @@ static string? TakeOption(List<string> arguments, string name)
 }
 
 static bool TakeFlag(List<string> arguments, string name) => arguments.Remove(name);
+
+// Source-generated JSON for --html-json, so that the tool can be published with NativeAOT.
+[JsonSerializable(typeof(string[]))]
+partial class TranslateJson : JsonSerializerContext
+{
+	public static TranslateJson Output { get; } = new(new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = true });
+}

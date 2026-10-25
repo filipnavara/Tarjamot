@@ -527,6 +527,42 @@ measurably (softmax is about 2% of one-thread time). A cold first translation lo
 60 ms faster, but cold timings vary too much to confirm this. A 1-ulp difference can still flip
 a near-tie between output tokens, so identical output is likely, not guaranteed.
 
+## NativeAOT
+
+`tools/Translate` publishes as a native binary (README, "Publishing with NativeAOT"). Its
+`--html-json` option uses source-generated JSON, so the publish has no trimming or AOT warnings;
+the project clears the `TargetFrameworks` list from `Directory.Build.props`, without which
+`dotnet publish -p:PublishAot=true` copied the framework instead of compiling a binary.
+
+Measured on an Apple M5 (osx-arm64, .NET 10.0.13), JIT against NativeAOT, medians of 5
+alternating runs with other processes keeping the load average at 4-6:
+
+| Case | JIT | NativeAOT |
+|---|---|---|
+| One cs-en sentence: whole process | 196-200 ms | 44-47 ms |
+| One cs-en sentence: first translation, including model loading | 124-130 ms | 33-35 ms |
+| One cs-en sentence: peak resident memory | 123 MB | 68 MB |
+| Czech text (2,300 words), first run, one thread | 1.50-1.54 s | 0.91-1.13 s |
+| Same, warm, one thread | 1.06-1.10 s | 1.08-1.09 s |
+| Same with the shortlist, warm, one thread | 0.78-0.80 s | 0.83-0.91 s |
+| English text (6,000 characters) to Japanese, warm, one thread | 0.42-0.47 s | 0.41-0.47 s |
+| Czech text, warm, default threads | 0.77-0.89 s | 0.76-0.79 s |
+| Peak resident memory on the texts | 177-211 MB | 114-141 MB |
+
+The ranges cover the builds before and after the change that removed `Int8Kernel`, which did
+not differ beyond noise in either mode. Without the JIT, a short translation finishes about 4x
+sooner and a long one's first run about 40% sooner. Warm speed is the same within noise, so the
+JIT's dynamic PGO gains nothing measurable here. Translations were byte-identical to the JIT
+build (cs-en with and without the shortlist, zh-Hans-en, en-ja, cs-ja, and `--html-json` in both
+markup modes).
+
+NativeAOT fixes the instruction sets at compile time, and `Dp.IsSupported` and
+`Avx2.IsSupported` become constants. osx-arm64 targets the Apple M1, so the binary has the SDOT
+kernel and no portable kernel, and `DOTNET_EnableArm64Dp=0` has no effect. The default x64
+target (x86-64-v2) has no AVX2: a cross-compiled osx-x64 binary contained only the portable
+kernel. With `-p:IlcInstructionSet=x86-64-v3` it contained only the AVX2 kernel and refused to
+start on a CPU without AVX2 (Rosetta). The x64 binaries were not timed.
+
 ## Threads
 
 `TranslationOptions.Parallelism` chooses how threads are used. All modes give identical output.

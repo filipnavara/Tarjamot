@@ -1,8 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Only net10.0: clear the TargetFrameworks list from Directory.Build.props, which otherwise
+         makes "dotnet publish -p:PublishAot=true" produce a framework copy instead of a native binary. -->
+    <TargetFrameworks></TargetFrameworks>
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Analyzes trimming and NativeAOT compatibility on every build; see README "Publishing with NativeAOT". -->
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>

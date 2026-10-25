@@ -23,7 +23,12 @@ dotnet test -c Release --filter "TestCategory!=ExternalServices"
 dotnet test -c Release
 dotnet pack src/Tarjamot -c Release -o artifacts
 dotnet pack src/Tarjamot.BergamotMarkup -c Release -o artifacts
+dotnet publish tools/Translate -c Release -r osx-arm64 -p:PublishAot=true -o publish
 ```
+
+NativeAOT fixes the int8 kernel at compile time: on x64, add `-p:IlcInstructionSet=x86-64-v3`
+(AVX2) or the binary has only the portable kernel. `tools/Translate` checks AOT compatibility on
+every build (`IsAotCompatible`), so keep it free of reflection.
 
 Kernels depend on the CPU: run the tests with `DOTNET_EnableAVX512=0`, `DOTNET_EnableAVX2=0`,
 `DOTNET_EnableArm64Dp=0` or `DOTNET_EnableHWIntrinsic=0` to cover the fallbacks.
