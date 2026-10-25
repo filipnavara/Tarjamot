@@ -220,8 +220,20 @@ tags in the output. Sentences split by markup, such as "This email was sent to
 - The int8 "intgemm8" model variant without precomputed alphas (`int8shiftAll`). The current
   catalog contains only `*.intgemm.alphas.bin` models.
 
+## Language identification
+
+`Tarjamot.LanguageIdentification` is a separate package, independent of the translation
+engine, that identifies the language of a text: naive Bayes over character n-grams in the style
+of NTextCat, loaded from profiles in eM Client's binary format, with the Unicode script of the
+text narrowing the candidates. `Tarjamot.LanguageIdentification.Profiles` adds a prebuilt
+55-language profile from Wikipedia articles, with separate Simplified and Traditional Chinese,
+that takes about 0.65 MB in memory; `tools/LanguageProfiles` builds others. See
+[its README](src/Tarjamot.LanguageIdentification/README.md).
+
 ## License
 
 `Tarjamot` is MIT, see [LICENSE](LICENSE). Parts follow or reimplement MIT, zlib and
 Apache-2.0 code. `Tarjamot.BergamotMarkup` ports Bergamot's HTML mode and is MPL-2.0, with a
-BSD-3-Clause HTML scanner. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+BSD-3-Clause HTML scanner. `Tarjamot.LanguageIdentification` is MIT. The profile in
+`Tarjamot.LanguageIdentification.Profiles` is derived from Wikipedia and is CC BY-SA 4.0. See
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

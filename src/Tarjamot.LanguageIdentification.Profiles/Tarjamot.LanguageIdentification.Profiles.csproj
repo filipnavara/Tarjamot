@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Tarjamot.LanguageIdentification.Profiles</PackageId>
+    <Description>A prebuilt language profile for Tarjamot.LanguageIdentification: 55 languages, including Simplified and Traditional Chinese and Cyrillic and Latin Serbian, built from Wikipedia articles. About 1 MB embedded, 0.65 MB in memory. The data is derived from Wikipedia and licensed under CC BY-SA 4.0.</Description>
+    <PackageTags>language-identification;language-detection;ngram;wikipedia</PackageTags>
+    <!-- The code is MIT; the embedded profile is derived from Wikipedia's text, CC BY-SA 4.0. -->
+    <PackageLicenseExpression>MIT AND CC-BY-SA-4.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1573;CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Tarjamot.LanguageIdentification/Tarjamot.LanguageIdentification.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="wikipedia.dat" LogicalName="Tarjamot.LanguageIdentification.Profiles.wikipedia.dat" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

@@ -62,6 +62,31 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF 
 IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+## NTextCat (MIT)
+
+https://github.com/ivanakcheurov/ntextcat. Copyright (c) Ivan Akcheurov.
+
+`src/Tarjamot.LanguageIdentification/LanguageIdentifier.cs` extracts NTextCat's character n-grams
+(each word wrapped in underscores) and computes the scores of NTextCat's naive Bayes classifier
+with add-one smoothing and the distance of its `DistributionDistanceCalculator`, with its own code
+and data structures.
+
+## eM Client
+
+https://www.emclient.com. The binary language profile format that `LanguageIdentifier` reads and
+`LanguageProfileBuilder` writes was designed by the eM Client team for eM Client's language
+detection; NTextCat itself stores profiles as XML.
+
+## Wikipedia (CC BY-SA 4.0)
+
+`src/Tarjamot.LanguageIdentification.Profiles/wikipedia.dat`, embedded in the
+Tarjamot.LanguageIdentification.Profiles package, is derived from the text of Wikipedia articles
+by Wikipedia contributors (https://www.wikipedia.org), licensed under the Creative Commons
+Attribution-ShareAlike 4.0 International License
+(https://creativecommons.org/licenses/by-sa/4.0/). The text was reduced to the counts of the most
+frequent character n-grams of each language, and the profile is licensed under CC BY-SA 4.0 too.
+The package's license expression is `MIT AND CC-BY-SA-4.0`.
+
 ## Marian (MIT)
 
 https://github.com/marian-nmt/marian-dev. Copyright (c) 2016 Marcin Junczys-Dowmunt, the
