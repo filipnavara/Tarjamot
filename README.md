@@ -129,10 +129,10 @@ chooses how the markup is put back:
 - **`ProjectedMarkupTranslator`** (the default, in this package, MIT):
   - Block elements and `<br>` are copied as written, and only the text between them is
     translated.
-  - Short cells of a table row (in two cells or more) are translated together, joined with
-    " · ", so that each has the others as context: "Mon … Sun" as days, not "Sun" as the
-    star. The translation is divided among the cells by the alignment; when it does not divide
-    cleanly, the cells are translated one by one.
+  - Short cells of a table row (in two cells or more) are translated together as one run,
+    "Mon · Tue · … · Sun", so that each has the others as context: days, not "Sun" as the
+    star. Each cell is an element of that run and is projected like the inline elements; when
+    the cells do not divide the translation cleanly, they are translated one by one.
   - Elements with `translate="no"` are copied as written, with their content.
   - A sentence that occurs several times is translated once.
   - Each inline element (`<a>`, `<b>`, `<span>`, `<font>` and the like) goes around the

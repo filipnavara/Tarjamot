@@ -82,13 +82,18 @@ public class LocalTranslatorTest
 	}
 
 	// Short cells of a table row are translated together, so that each has the others as context:
-	// alone, "Sun" is the star.
-	[TestCase("<table><tr><td>Mon</td><td>Tue</td><td>Wed</td><td>Thu</td><td>Fri</td><td>Sat</td><td>Sun</td></tr></table>", "<table><tr><td>\u6708\u66DC\u65E5</td><td>\u706B\u66DC\u65E5</td><td>\u6C34\u66DC\u65E5</td><td>\u6728\u66DC\u65E5</td><td>\u91D1\u66DC\u65E5</td><td>\u571F\u66DC\u65E5</td><td>\u65E5\u66DC\u65E5</td></tr></table>")]
-	[TestCase("<p>Mon</p><p>Tue</p><p>Wed</p><p>Thu</p><p>Fri</p><p>Sat</p><p>Sun</p>", "<p>\u6708\u66DC\u65E5</p><p>\u706B\u66DC\u65E5</p><p>\u6C34\u66DC\u65E5</p><p>\u6728\u66DC\u65E5</p><p>\u91D1\u66DC\u65E5</p><p>\u571F\u66DC\u65E5</p><p>\u30B5\u30F3</p>")]
-	public async Task TranslatesShortCellsOfARowTogether(string html, string expected)
+	// alone, "Sun" is the star. Markup inside the cells is projected as in any run, and markup
+	// without text at the edge of a cell stays there. The last row does not divide cleanly (the
+	// date loses its month through English), so its cells are translated one by one.
+	[TestCase("en", "ja", "<table><tr><td>Mon</td><td>Tue</td><td>Wed</td><td>Thu</td><td>Fri</td><td>Sat</td><td>Sun</td></tr></table>", "<table><tr><td>\u6708\u66DC\u65E5</td><td>\u706B\u66DC\u65E5</td><td>\u6C34\u66DC\u65E5</td><td>\u6728\u66DC\u65E5</td><td>\u91D1\u66DC\u65E5</td><td>\u571F\u66DC\u65E5</td><td>\u65E5\u66DC\u65E5</td></tr></table>")]
+	[TestCase("en", "ja", "<p>Mon</p><p>Tue</p><p>Wed</p><p>Thu</p><p>Fri</p><p>Sat</p><p>Sun</p>", "<p>\u6708\u66DC\u65E5</p><p>\u706B\u66DC\u65E5</p><p>\u6C34\u66DC\u65E5</p><p>\u6728\u66DC\u65E5</p><p>\u91D1\u66DC\u65E5</p><p>\u571F\u66DC\u65E5</p><p>\u30B5\u30F3</p>")]
+	[TestCase("en", "ja", "<table><tr><td><a href=\"/o\">Open</a></td><td><b>Close</b></td><td>Save <i>all</i></td></tr></table>", "<table><tr><td><a href=\"/o\">\u30AA\u30FC\u30D7\u30F3</a></td><td><b>\u9589\u3058\u308B</b></td><td><i>\u3059\u3079\u3066</i>\u4FDD\u5B58\u3057\u3066\u304F\u3060\u3055\u3044</td></tr></table>")]
+	[TestCase("en", "ja", "<table><tr><td>Movies</td><td><img src=\"x.png\"> Episodes</td></tr></table>", "<table><tr><td>\u6620\u753B</td><td><img src=\"x.png\">\u30A8\u30D4\u30BD\u30FC\u30C9</td></tr></table>")]
+	[TestCase("cs", "ja", "<table><tr><td>Faktura.pdf</td><td>1. 11. 2026</td><td>120 kB</td></tr></table>", "<table><tr><td>\u30D5\u30A1\u30AF\u30C1\u30E5\u30E9\u30FB\u30C9\u30C3\u30C8\u30FB\u30DA\u30F3\u30B7\u30EB\u30D9\u30CB\u30A2</td><td>1.11.2026\u5E74</td><td>120\u30AD\u30EDB</td></tr></table>")]
+	public async Task TranslatesShortCellsOfARowTogether(string source, string target, string html, string expected)
 	{
 		using var translator = new LocalTranslator(store);
-		Assert.That(await translator.TranslateMarkupAsync("en", "ja", [html]), Is.EqualTo(new[] { expected }));
+		Assert.That(await translator.TranslateMarkupAsync(source, target, [html]), Is.EqualTo(new[] { expected }));
 	}
 
 	[Test]
