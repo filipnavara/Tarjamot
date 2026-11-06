@@ -41,8 +41,6 @@ internal static partial class MarkupProjection
 		public int SourceEnd { get; set; }
 		public int TargetStart { get; set; }
 		public int TargetEnd { get; set; }
-		// A cell of a joined row (TranslateRuns): projected onto one span only.
-		public bool IsCell { get; init; }
 		public bool IsAnchor => Close is null;
 	}
 
@@ -52,13 +50,13 @@ internal static partial class MarkupProjection
 		public required string Html { get; init; }
 		public required string Text { get; init; }
 		public required List<Item> Items { get; init; }
-		// The innermost table row and cell the run is in, if any (TranslateRows).
+		// The innermost table row and cell the run is in, if any (FindRowGroups).
 		public HtmlElement? Row { get; init; }
 		public HtmlElement? Cell { get; init; }
-		// The short runs of a row joined into one sentence (TranslateRuns).
+		// The short runs of a row joined into one sentence, not split into sentences (JoinRow).
 		public bool IsJoined { get; init; }
-		// The rendered translation, when the run was translated as a cell of its row.
-		public string? Output { get; set; }
+		// Translated as a cell of its row: its markup goes around the translation (PlaceAround).
+		public bool IsRowCell { get; set; }
 		public List<Sentence> Sentences { get; } = [];
 		// Gaps between sentences: source range and where they went in the target.
 		public List<(int SourceStart, int SourceEnd, int TargetStart, int TargetLength)> Gaps { get; } = [];
@@ -88,7 +86,7 @@ internal static partial class MarkupProjection
 		var documents = fragments.Select(Divide).ToArray();
 		var runs = documents.SelectMany(pieces => pieces.OfType<Run>()).ToList();
 		TranslateRuns(runs, models, cancellationToken);
-		return documents.Select(pieces => string.Concat(pieces.Select(piece => piece as string ?? ((Run)piece).Output ?? Render((Run)piece)))).ToArray();
+		return documents.Select(pieces => string.Concat(pieces.Select(piece => piece as string ?? Render((Run)piece)))).ToArray();
 	}
 
 	// The fragment as markup copied as written (strings) and runs to translate.
@@ -103,12 +101,7 @@ internal static partial class MarkupProjection
 			var run = new List<HtmlNode>();
 			foreach (var node in nodes)
 			{
-				if (node is HtmlElement { IsUntranslated: true } untranslated && !InlineElements.Contains(untranslated.Name))
-				{
-					Flush(run, row, cell);
-					pieces.Add(html[untranslated.Start..untranslated.End]);
-				}
-				else if (node is HtmlElement element && !IsInline(element))
+				if (node is HtmlElement element && !IsInline(element))
 				{
 					Flush(run, row, cell);
 					pieces.Add(html[element.Start..element.StartTagEnd]);
@@ -133,7 +126,7 @@ internal static partial class MarkupProjection
 		}
 	}
 
-	static bool IsOpaque(HtmlElement element) => element.IsUntranslated || OpaqueElements.Contains(element.Name);
+	static bool IsOpaque(HtmlElement element) => OpaqueElements.Contains(element.Name);
 
 	static bool IsInline(HtmlElement element) =>
 		IsOpaque(element) || (InlineElements.Contains(element.Name) && element.Children.All(child => child is not HtmlElement inner || IsInline(inner)));
@@ -544,7 +537,7 @@ internal static partial class MarkupProjection
 				start = end;
 			}
 			groups.Sort((a, b) => b.Mass.CompareTo(a.Mass));
-			bool copy = !hasChildren && !item.IsCell && !IdAttribute().IsMatch(item.Open);
+			bool copy = !hasChildren && !IdAttribute().IsMatch(item.Open);
 			var selected = copy ? groups.Where(group => group.Mass >= groups[0].Mass / 2).ToList() : [groups[0]];
 
 			var spans = new List<(int Start, int End)>();
@@ -684,18 +677,15 @@ internal static partial class MarkupProjection
 			and not (>= '\u1780' and <= '\u17FF') and not (>= '\u3040' and <= '\u30FF') and not (>= '\u3400' and <= '\u4DBF')
 			and not (>= '\u4E00' and <= '\u9FFF') and not (>= '\uF900' and <= '\uFAFF') and not (>= '\uFF66' and <= '\uFF9F');
 
-	static string Render(Run run) => Render(run, -1, 0, run.Target.Length);
-
-	// The children of an element (-1: the run) over a range of the translation.
-	static string Render(Run run, int root, int from, int to)
+	static string Render(Run run)
 	{
-		var html = new StringBuilder((to - from) * 2);
+		var html = new StringBuilder(run.Target.Length * 2);
 		var children = new List<int>[run.Items.Count + 1];
 		for (int i = 0; i < children.Length; i++)
 			children[i] = [];
 		for (int i = 0; i < run.Items.Count; i++)
 			children[run.Items[i].Parent + 1].Add(i);
-		RenderChildren(root, from, to);
+		RenderChildren(-1, 0, run.Target.Length);
 		return html.ToString();
 
 		void RenderChildren(int parent, int from, int to)
@@ -719,28 +709,25 @@ internal static partial class MarkupProjection
 			AppendText(position, to);
 		}
 
-		void AppendText(int start, int end) => MarkupProjection.AppendText(html, run.Target.AsSpan(start, end - start));
-	}
-
-	// Text with the characters that would be markup escaped.
-	static void AppendText(StringBuilder html, ReadOnlySpan<char> text)
-	{
-		foreach (char c in text)
+		void AppendText(int start, int end)
 		{
-			switch (c)
+			foreach (char c in run.Target.AsSpan(start, end - start))
 			{
-				case '&':
-					html.Append("&amp;");
-					break;
-				case '<':
-					html.Append("&lt;");
-					break;
-				case '>':
-					html.Append("&gt;");
-					break;
-				default:
-					html.Append(c);
-					break;
+				switch (c)
+				{
+					case '&':
+						html.Append("&amp;");
+						break;
+					case '<':
+						html.Append("&lt;");
+						break;
+					case '>':
+						html.Append("&gt;");
+						break;
+					default:
+						html.Append(c);
+						break;
+				}
 			}
 		}
 	}

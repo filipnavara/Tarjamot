@@ -129,11 +129,12 @@ chooses how the markup is put back:
 - **`ProjectedMarkupTranslator`** (the default, in this package, MIT):
   - Block elements and `<br>` are copied as written, and only the text between them is
     translated.
-  - Short cells of a table row (in two cells or more) are translated together as one run,
+  - Short cells of a table row (in two cells or more) are translated together as one sentence,
     "Mon · Tue · … · Sun", so that each has the others as context: days, not "Sun" as the
-    star. Each cell is an element of that run and is projected like the inline elements; when
-    the cells do not divide the translation cleanly, they are translated one by one.
-  - Elements with `translate="no"` are copied as written, with their content.
+    star. The translation is split at the separators. Only cells whose markup is around their
+    words take part (a `<span>` around the label, an icon before it); that markup goes back
+    around each cell's translation. When the translation does not split into one part per
+    cell, the cells are translated one by one.
   - A sentence that occurs several times is translated once.
   - Each inline element (`<a>`, `<b>`, `<span>`, `<font>` and the like) goes around the
     contiguous translated words aligned with its words, widened to whole words. Punctuation
