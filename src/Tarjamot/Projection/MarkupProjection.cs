@@ -101,7 +101,13 @@ internal static partial class MarkupProjection
 			var run = new List<HtmlNode>();
 			foreach (var node in nodes)
 			{
-				if (node is HtmlElement element && !IsInline(element))
+				if (node is HtmlElement { IsUntranslated: true } untranslated && !InlineElements.Contains(untranslated.Name))
+				{
+					// A block with translate="no": copied as written, with its content.
+					Flush(run);
+					pieces.Add(html[untranslated.Start..untranslated.End]);
+				}
+				else if (node is HtmlElement element && !IsInline(element))
 				{
 					Flush(run);
 					pieces.Add(html[element.Start..element.StartTagEnd]);
@@ -125,7 +131,7 @@ internal static partial class MarkupProjection
 		}
 	}
 
-	static bool IsOpaque(HtmlElement element) => OpaqueElements.Contains(element.Name);
+	static bool IsOpaque(HtmlElement element) => element.IsUntranslated || OpaqueElements.Contains(element.Name);
 
 	static bool IsInline(HtmlElement element) =>
 		IsOpaque(element) || (InlineElements.Contains(element.Name) && element.Children.All(child => child is not HtmlElement inner || IsInline(inner)));

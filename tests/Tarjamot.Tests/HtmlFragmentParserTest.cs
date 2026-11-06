@@ -36,6 +36,18 @@ public class HtmlFragmentParserTest
 	public void RejectsMalformedMarkup(string html) =>
 		Assert.Throws<FormatException>(() => HtmlFragmentParser.Parse(html));
 
+	[TestCase("<span translate=\"no\">x</span>", true)]
+	[TestCase("<div TRANSLATE='No' class=a>x</div>", true)]
+	[TestCase("<p translate=no>x</p>", true)]
+	[TestCase("<p translate = \"no\" >x</p>", true)]
+	[TestCase("<p translate=\"yes\">x</p>", false)]
+	[TestCase("<p title=\"translate=no\">x</p>", false)]
+	[TestCase("<p title=\"a translate=no\">x</p>", false)]
+	[TestCase("<p data-translate=\"no\">x</p>", false)]
+	[TestCase("<p translate>x</p>", false)]
+	public void FindsTranslateNo(string html, bool expected) =>
+		Assert.That(((HtmlElement)HtmlFragmentParser.Parse(html)[0]).IsUntranslated, Is.EqualTo(expected));
+
 	static string Describe(List<HtmlNode> nodes) => string.Concat(nodes.Select(node => node switch
 	{
 		HtmlText text => $"T({text.Text})",

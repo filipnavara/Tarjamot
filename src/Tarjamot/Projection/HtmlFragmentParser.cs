@@ -32,6 +32,9 @@ internal sealed class HtmlElement : HtmlNode
 	public List<HtmlNode> Children { get; } = [];
 
 	public bool IsEmpty => EndTagStart == End;
+
+	/// <summary>The element has translate="no": it is copied as written, with its content.</summary>
+	public bool IsUntranslated { get; init; }
 }
 
 /// <summary>
@@ -137,7 +140,15 @@ internal static class HtmlFragmentParser
 						end++;
 					}
 
-					var element = new HtmlElement { Name = name, Start = position, StartTagEnd = end, EndTagStart = end, End = end };
+					var element = new HtmlElement
+					{
+						Name = name,
+						Start = position,
+						StartTagEnd = end,
+						EndTagStart = end,
+						End = end,
+						IsUntranslated = HasTranslateNo(html, nameEnd, end),
+					};
 					nodes.Add(element);
 					position = end;
 					if (selfClosed || VoidElements.Contains(name))
@@ -172,6 +183,47 @@ internal static class HtmlFragmentParser
 				return i;
 		}
 		return html.Length;
+	}
+
+	// Whether the attributes of a start tag, between its name and its end, have translate="no"
+	// (the value is not case-sensitive).
+	static bool HasTranslateNo(string html, int start, int end)
+	{
+		int position = start;
+		while (position < end)
+		{
+			while (position < end && (char.IsWhiteSpace(html[position]) || html[position] is '/' or '>'))
+				position++;
+			int nameStart = position;
+			while (position < end && !char.IsWhiteSpace(html[position]) && html[position] is not ('=' or '/' or '>'))
+				position++;
+			var name = html.AsSpan(nameStart, position - nameStart);
+			while (position < end && char.IsWhiteSpace(html[position]))
+				position++;
+			if (position >= end || html[position] != '=')
+				continue;
+			position++;
+			while (position < end && char.IsWhiteSpace(html[position]))
+				position++;
+			int valueStart, valueEnd;
+			if (position < end && html[position] is '"' or '\'')
+			{
+				valueStart = position + 1;
+				valueEnd = html.IndexOf(html[position], valueStart, end - valueStart);
+				position = valueEnd + 1;
+			}
+			else
+			{
+				valueStart = position;
+				while (position < end && !char.IsWhiteSpace(html[position]) && html[position] != '>')
+					position++;
+				valueEnd = position;
+			}
+			if (name.Equals("translate", StringComparison.OrdinalIgnoreCase)
+				&& html.AsSpan(valueStart, valueEnd - valueStart).Trim().Equals("no", StringComparison.OrdinalIgnoreCase))
+				return true;
+		}
+		return false;
 	}
 
 	static int NameEnd(string html, int start)
