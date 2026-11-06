@@ -81,6 +81,24 @@ public class LocalTranslatorTest
 		Assert.That(await translator.TranslateMarkupAsync(source, target, [html]), Is.EqualTo(new[] { expected }));
 	}
 
+	// Short cells of a table row are translated together, so that each has the others as context:
+	// alone, "Sun" is the star.
+	[TestCase("<table><tr><td>Mon</td><td>Tue</td><td>Wed</td><td>Thu</td><td>Fri</td><td>Sat</td><td>Sun</td></tr></table>", "<table><tr><td>\u6708\u66DC\u65E5</td><td>\u706B\u66DC\u65E5</td><td>\u6C34\u66DC\u65E5</td><td>\u6728\u66DC\u65E5</td><td>\u91D1\u66DC\u65E5</td><td>\u571F\u66DC\u65E5</td><td>\u65E5\u66DC\u65E5</td></tr></table>")]
+	[TestCase("<p>Mon</p><p>Tue</p><p>Wed</p><p>Thu</p><p>Fri</p><p>Sat</p><p>Sun</p>", "<p>\u6708\u66DC\u65E5</p><p>\u706B\u66DC\u65E5</p><p>\u6C34\u66DC\u65E5</p><p>\u6728\u66DC\u65E5</p><p>\u91D1\u66DC\u65E5</p><p>\u571F\u66DC\u65E5</p><p>\u30B5\u30F3</p>")]
+	public async Task TranslatesShortCellsOfARowTogether(string html, string expected)
+	{
+		using var translator = new LocalTranslator(store);
+		Assert.That(await translator.TranslateMarkupAsync("en", "ja", [html]), Is.EqualTo(new[] { expected }));
+	}
+
+	[Test]
+	public async Task KeepsContentWithTranslateNo()
+	{
+		using var translator = new LocalTranslator(store);
+		Assert.That(await translator.TranslateMarkupAsync("en", "ja", ["<p>Watch <span translate=\"no\">Raw</span> tonight.</p><div translate=no><p>Hello world.</p></div>"]),
+			Is.EqualTo(new[] { "<p><span translate=\"no\">Raw</span>\u4ECA\u591C\u306F\u898B\u3066\u304F\u3060\u3055\u3044\u3002</p><div translate=no><p>Hello world.</p></div>" }));
+	}
+
 	[Test]
 	public async Task DisabledIdleRetentionPreservesPivotAndCancellation()
 	{

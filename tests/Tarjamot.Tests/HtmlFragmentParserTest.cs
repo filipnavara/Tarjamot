@@ -27,6 +27,15 @@ public class HtmlFragmentParserTest
 		Assert.That(html[element.EndTagStart..element.End], Is.EqualTo("</A>"));
 	}
 
+	[TestCase("<span translate=\"no\">x</span>", true)]
+	[TestCase("<div TRANSLATE='no' class=a>x</div>", true)]
+	[TestCase("<p translate=no>x</p>", true)]
+	[TestCase("<p translate=\"yes\">x</p>", false)]
+	[TestCase("<p title=\"translate=no\">x</p>", false)]
+	[TestCase("<p data-translate=\"no\">x</p>", false)]
+	public void FindsTranslateNo(string html, bool expected) =>
+		Assert.That(((HtmlElement)HtmlFragmentParser.Parse(html)[0]).IsUntranslated, Is.EqualTo(expected));
+
 	[TestCase("<b>Bold</i>")]
 	[TestCase("<b>Unclosed")]
 	[TestCase("Closed</b>")]

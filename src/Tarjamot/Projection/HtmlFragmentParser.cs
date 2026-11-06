@@ -32,6 +32,9 @@ internal sealed class HtmlElement : HtmlNode
 	public List<HtmlNode> Children { get; } = [];
 
 	public bool IsEmpty => EndTagStart == End;
+
+	/// <summary>The element has translate="no": its content is copied as written.</summary>
+	public bool IsUntranslated { get; init; }
 }
 
 /// <summary>
@@ -40,8 +43,11 @@ internal sealed class HtmlElement : HtmlNode
 /// void elements and self-closed ones ("&lt;b/&gt;"); the content of raw text elements such as
 /// &lt;script&gt; is not parsed. A "&lt;" that does not start markup is text.
 /// </summary>
-internal static class HtmlFragmentParser
+internal static partial class HtmlFragmentParser
 {
+	[System.Text.RegularExpressions.GeneratedRegex(@"\stranslate\s*=\s*(""no""|'no'|no(?=[\s/>]))", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+	private static partial System.Text.RegularExpressions.Regex TranslateNoAttribute();
+
 	static readonly HashSet<string> VoidElements = ["area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img",
 		"input", "keygen", "link", "meta", "param", "source", "track", "wbr"];
 
@@ -137,7 +143,15 @@ internal static class HtmlFragmentParser
 						end++;
 					}
 
-					var element = new HtmlElement { Name = name, Start = position, StartTagEnd = end, EndTagStart = end, End = end };
+					var element = new HtmlElement
+					{
+						Name = name,
+						Start = position,
+						StartTagEnd = end,
+						EndTagStart = end,
+						End = end,
+						IsUntranslated = TranslateNoAttribute().IsMatch(html.AsSpan(nameEnd, end - nameEnd)),
+					};
 					nodes.Add(element);
 					position = end;
 					if (selfClosed || VoidElements.Contains(name))
