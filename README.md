@@ -126,6 +126,8 @@ fragment. `TranslationOptions.MarkupTranslator` chooses how the markup is put ba
 - **`ProjectedMarkupTranslator`** (the default, in this package, MIT):
   - Block elements and `<br>` are copied as written, and only the text between them is
     translated.
+  - Elements with `translate="no"` are copied as written, with their content: a block element
+    as it stands, an inline one next to the word it preceded.
   - Each inline element (`<a>`, `<b>`, `<span>`, `<font>` and the like) goes around the
     contiguous translated words aligned with its words, widened to whole words. Punctuation
     stays outside unless the source had it inside.
