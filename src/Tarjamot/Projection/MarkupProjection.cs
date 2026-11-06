@@ -53,7 +53,7 @@ internal static partial class MarkupProjection
 		// The innermost table row and cell the run is in, if any (FindRowGroups).
 		public HtmlElement? Row { get; init; }
 		public HtmlElement? Cell { get; init; }
-		// The short runs of a row joined into one sentence, not split into sentences (JoinRow).
+		// The short runs of a row joined into one sentence, not split into sentences (FindRowGroups).
 		public bool IsJoined { get; init; }
 		// Translated as a cell of its row: its markup goes around the translation (PlaceAround).
 		public bool IsRowCell { get; set; }
@@ -208,19 +208,23 @@ internal static partial class MarkupProjection
 		return sentences;
 	}
 
-	// Translates the sentences, each distinct one once.
-	static void TranslateSentences(List<Sentence> sentences, IReadOnlyList<TranslationModel> models, CancellationToken cancellationToken)
+	// Translates the sentences, each distinct one once; translated holds the ones already
+	// translated by token ids, and gains those of this call.
+	static void TranslateSentences(List<Sentence> sentences, Dictionary<List<int>, Sentence> translated, IReadOnlyList<TranslationModel> models, CancellationToken cancellationToken)
 	{
-		var unique = new Dictionary<List<int>, Sentence>(IdsComparer.Instance);
+		var unique = new List<Sentence>();
 		var copies = new List<(Sentence Copy, Sentence Original)>();
 		foreach (var sentence in sentences)
 		{
-			if (unique.TryGetValue(sentence.Ids, out var original))
+			if (translated.TryGetValue(sentence.Ids, out var original))
 				copies.Add((sentence, original));
 			else
-				unique.Add(sentence.Ids, sentence);
+			{
+				translated.Add(sentence.Ids, sentence);
+				unique.Add(sentence);
+			}
 		}
-		TranslateDistinct([.. unique.Values], models, cancellationToken);
+		TranslateDistinct(unique, models, cancellationToken);
 		foreach (var (copy, original) in copies)
 		{
 			copy.Target = original.Target;

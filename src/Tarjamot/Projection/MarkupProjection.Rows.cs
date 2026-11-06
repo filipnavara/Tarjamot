@@ -1,12 +1,11 @@
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Tarjamot.Projection;
 
 // Short cells of a table row, such as the days of a calendar ("Mon", "Tue", ... "Sun") or the
 // headers of a list, are ambiguous on their own: "Sun" alone is the star. The short runs of a row
 // with them in two cells or more (a layout table's row of one cell is not a list) are therefore
-// translated together as one sentence, "Mon · Tue · ... · Sun", and the translation is split at
+// translated together as one sentence, "Mon \u00B7 Tue \u00B7 ... \u00B7 Sun", and the translation is split at
 // the separators. The models keep such a list as a list. Only runs whose markup is around their
 // words take part (a <span> or <font> around the label, an icon before it): the markup goes back
 // around each cell's translation as it was, with no projection. When the translation does not
@@ -16,10 +15,10 @@ internal static partial class MarkupProjection
 	// A run of one sentence of at most this many tokens takes part in its row.
 	const int MaxRowSentenceTokens = 8;
 	const int MaxRowRuns = 12;
-	const string RowSeparator = " · ";
+	const string RowSeparator = " \u00B7 ";
 
 	// The separator and what the models make of it: the katakana middle dot in Japanese, and the like.
-	static readonly char[] RowSeparators = ['·', '•', '‧', '・', '･', '|', '｜'];
+	static readonly char[] RowSeparators = ['\u00B7', '\u2022', '\u2027', '\u30FB', '\uFF65', '|', '\uFF5C'];
 
 	static void TranslateRuns(List<Run> runs, IReadOnlyList<TranslationModel> models, CancellationToken cancellationToken)
 	{
@@ -28,15 +27,18 @@ internal static partial class MarkupProjection
 		var groups = FindRowGroups(runs);
 		var grouped = groups.SelectMany(group => group.Members).ToHashSet();
 		var joined = Segment([.. groups.Select(group => group.Joined)], engine);
-		TranslateSentences([.. sentences.Where(sentence => !grouped.Contains(sentence.Run)), .. joined], models, cancellationToken);
+		var translated = new Dictionary<List<int>, Sentence>(IdsComparer.Instance);
+		TranslateSentences([.. sentences.Where(sentence => !grouped.Contains(sentence.Run)), .. joined], translated, models, cancellationToken);
 
+		// The members of a row that did not split: translated one by one, with what the first
+		// batch already translated.
 		var separately = new List<Sentence>();
 		foreach (var group in groups)
 		{
 			if (!SplitRow(group))
 				separately.AddRange(group.Members.Select(member => member.Sentences[0]));
 		}
-		TranslateSentences(separately, models, cancellationToken);
+		TranslateSentences(separately, translated, models, cancellationToken);
 
 		bool omitSpaces = TextTranslation.OmitsSpacesBetweenSentences(models[^1].TargetLanguage);
 		foreach (var run in runs)
@@ -71,19 +73,19 @@ internal static partial class MarkupProjection
 		var groups = new List<RowGroup>();
 		foreach (var members in order)
 		{
-			if (members.Select(member => member.Cell).Distinct().Count() < 2)
-				continue;
-			// Groups of nearly equal size, so that none is left with a single run.
+			// Chunks of nearly equal size; the remainder goes to the first chunks, so that none is
+			// left with a single run. A chunk of one cell (a layout table's column of lines) is
+			// not a list.
 			int count = (members.Count + MaxRowRuns - 1) / MaxRowRuns;
-			int size = (members.Count + count - 1) / count;
-			for (int start = 0; start < members.Count; start += size)
+			int size = members.Count / count, remainder = members.Count % count;
+			for (int i = 0, start = 0; i < count; i++)
 			{
-				var chunk = members.GetRange(start, Math.Min(size, members.Count - start));
-				if (chunk.Count >= 2)
-				{
-					var text = string.Join(RowSeparator, chunk.Select(member => member.Text[member.Sentences[0].Range]));
-					groups.Add(new RowGroup(chunk, new Run { Html = chunk[0].Html, Text = text, Items = [], IsJoined = true }));
-				}
+				var chunk = members.GetRange(start, size + (i < remainder ? 1 : 0));
+				start += chunk.Count;
+				if (chunk.Count < 2 || chunk.Select(member => member.Cell).Distinct().Count() < 2)
+					continue;
+				var text = string.Join(RowSeparator, chunk.Select(member => member.Text[member.Sentences[0].Range]));
+				groups.Add(new RowGroup(chunk, new Run { Html = chunk[0].Html, Text = text, Items = [], IsJoined = true }));
 			}
 		}
 		return groups;
@@ -107,10 +109,11 @@ internal static partial class MarkupProjection
 	}
 
 	// Gives each member its part of the joined translation, when it splits into one part with
-	// words per member.
+	// words per member. A separator the model put at either end (Japanese lists often end in
+	// one) is not a part.
 	static bool SplitRow(RowGroup group)
 	{
-		var parts = group.Joined.Sentences[0].Target.Split(RowSeparators);
+		var parts = group.Joined.Sentences[0].Target.AsSpan().Trim().Trim(RowSeparators).ToString().Split(RowSeparators);
 		if (parts.Length != group.Members.Count || !parts.All(part => part.Any(char.IsLetterOrDigit)))
 			return false;
 		for (int i = 0; i < parts.Length; i++)
