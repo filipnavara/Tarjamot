@@ -9,7 +9,8 @@ namespace Tarjamot;
 /// an inline element such as &lt;a&gt; or &lt;b&gt; is placed around the contiguous translated
 /// words aligned with its words, widened to whole words. Elements without translatable text
 /// (&lt;img&gt;, comments, &lt;code&gt;, &lt;script&gt;) are copied as written next to the word they
-/// preceded, as are elements with translate="no". The markup is copied as written, so the
+/// preceded, as are elements with translate="no". Short cells of a table row are translated
+/// together so that each has the others as context. The markup is copied as written, so the
 /// output differs from Firefox's.
 /// </summary>
 public sealed class ProjectedMarkupTranslator : MarkupTranslator

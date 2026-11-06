@@ -119,15 +119,25 @@ and [docs/X86-PERFORMANCE.md](docs/X86-PERFORMANCE.md).
 without its markup, and the markup is put back along the model's alignments: the soft alignment
 of every target token, head 0 of the last decoder layer's context attention (Marian's
 `alignment: soft`). Pivots combine the alignments of both models through the English text.
-Fragments must be well-formed; malformed markup throws `FormatException`. Real-world email HTML
-is best divided into runs of inline content between block elements, each translated as one
-fragment. `TranslationOptions.MarkupTranslator` chooses how the markup is put back:
+Fragments must be well-formed; malformed markup throws `FormatException`. With the default
+`ProjectedMarkupTranslator`, a whole document (an email's body) can be one fragment: it finds the
+runs of text between block elements itself and sees the table rows they are in. With
+`BergamotMarkupTranslator`, real-world email HTML is best divided into runs of inline content
+between block elements, each translated as one fragment. `TranslationOptions.MarkupTranslator`
+chooses how the markup is put back:
 
 - **`ProjectedMarkupTranslator`** (the default, in this package, MIT):
   - Block elements and `<br>` are copied as written, and only the text between them is
     translated.
   - Elements with `translate="no"` are copied as written, with their content: a block element
     as it stands, an inline one next to the word it preceded.
+  - Short cells of a table row (in two cells or more) are translated together as one sentence,
+    "Mon · Tue · … · Sun", so that each has the others as context: days, not "Sun" as the
+    star. The translation is split at the separators. Only cells whose markup is around their
+    words take part (a `<span>` around the label, an icon before it); that markup goes back
+    around each cell's translation. When the translation does not split into one part per
+    cell, the cells are translated one by one.
+  - A sentence that occurs several times is translated once.
   - Each inline element (`<a>`, `<b>`, `<span>`, `<font>` and the like) goes around the
     contiguous translated words aligned with its words, widened to whole words. Punctuation
     stays outside unless the source had it inside.

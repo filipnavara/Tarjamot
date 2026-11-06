@@ -50,6 +50,13 @@ internal static partial class MarkupProjection
 		public required string Html { get; init; }
 		public required string Text { get; init; }
 		public required List<Item> Items { get; init; }
+		// The innermost table row and cell the run is in, if any (FindRowGroups).
+		public HtmlElement? Row { get; init; }
+		public HtmlElement? Cell { get; init; }
+		// The short runs of a row joined into one sentence, not split into sentences (FindRowGroups).
+		public bool IsJoined { get; init; }
+		// Translated as a cell of its row: its markup goes around the translation (PlaceAround).
+		public bool IsRowCell { get; set; }
 		public List<Sentence> Sentences { get; } = [];
 		// Gaps between sentences: source range and where they went in the target.
 		public List<(int SourceStart, int SourceEnd, int TargetStart, int TargetLength)> Gaps { get; } = [];
@@ -78,14 +85,7 @@ internal static partial class MarkupProjection
 	{
 		var documents = fragments.Select(Divide).ToArray();
 		var runs = documents.SelectMany(pieces => pieces.OfType<Run>()).ToList();
-		var sentences = Segment(runs, models[0].Engine);
-		TranslateSentences(sentences, models, cancellationToken);
-		bool omitSpaces = TextTranslation.OmitsSpacesBetweenSentences(models[^1].TargetLanguage);
-		foreach (var run in runs)
-		{
-			Assemble(run, omitSpaces);
-			Project(run);
-		}
+		TranslateRuns(runs, models, cancellationToken);
 		return documents.Select(pieces => string.Concat(pieces.Select(piece => piece as string ?? Render((Run)piece)))).ToArray();
 	}
 
@@ -93,10 +93,10 @@ internal static partial class MarkupProjection
 	static List<object> Divide(string html)
 	{
 		var pieces = new List<object>();
-		Walk(HtmlFragmentParser.Parse(html));
+		Walk(HtmlFragmentParser.Parse(html), null, null);
 		return pieces;
 
-		void Walk(List<HtmlNode> nodes)
+		void Walk(List<HtmlNode> nodes, HtmlElement? row, HtmlElement? cell)
 		{
 			var run = new List<HtmlNode>();
 			foreach (var node in nodes)
@@ -104,14 +104,15 @@ internal static partial class MarkupProjection
 				if (node is HtmlElement { IsUntranslated: true } untranslated && !InlineElements.Contains(untranslated.Name))
 				{
 					// A block with translate="no": copied as written, with its content.
-					Flush(run);
+					Flush(run, row, cell);
 					pieces.Add(html[untranslated.Start..untranslated.End]);
 				}
 				else if (node is HtmlElement element && !IsInline(element))
 				{
-					Flush(run);
+					Flush(run, row, cell);
 					pieces.Add(html[element.Start..element.StartTagEnd]);
-					Walk(element.Children);
+					Walk(element.Children, element.Name == "tr" ? element : row,
+						element.Name == "tr" ? null : element.Name is "td" or "th" ? element : cell);
 					pieces.Add(html[element.EndTagStart..element.End]);
 				}
 				else
@@ -119,14 +120,14 @@ internal static partial class MarkupProjection
 					run.Add(node);
 				}
 			}
-			Flush(run);
+			Flush(run, row, cell);
 		}
 
-		void Flush(List<HtmlNode> nodes)
+		void Flush(List<HtmlNode> nodes, HtmlElement? row, HtmlElement? cell)
 		{
 			if (nodes.Count == 0)
 				return;
-			pieces.Add((object?)CreateRun(html, nodes) ?? html[nodes[0].Start..nodes[^1].End]);
+			pieces.Add((object?)CreateRun(html, nodes, row, cell) ?? html[nodes[0].Start..nodes[^1].End]);
 			nodes.Clear();
 		}
 	}
@@ -137,7 +138,7 @@ internal static partial class MarkupProjection
 		IsOpaque(element) || (InlineElements.Contains(element.Name) && element.Children.All(child => child is not HtmlElement inner || IsInline(inner)));
 
 	// The plain text of a run of inline nodes and its elements, or null if it has nothing to translate.
-	static Run? CreateRun(string html, List<HtmlNode> nodes)
+	static Run? CreateRun(string html, List<HtmlNode> nodes, HtmlElement? row, HtmlElement? cell)
 	{
 		var text = new StringBuilder();
 		var items = new List<Item>();
@@ -146,7 +147,7 @@ internal static partial class MarkupProjection
 		var plain = text.ToString();
 		if (!plain.Any(char.IsLetterOrDigit))
 			return null;
-		return new Run { Html = html, Text = plain, Items = items };
+		return new Run { Html = html, Text = plain, Items = items, Row = row, Cell = cell };
 
 		void Add(HtmlNode node, int parent)
 		{
@@ -184,7 +185,7 @@ internal static partial class MarkupProjection
 		var sentences = new List<Sentence>();
 		foreach (var run in runs)
 		{
-			foreach (var range in SentenceSplitter.SplitRanges(run.Text))
+			foreach (var range in run.IsJoined ? [new Range(0, run.Text.Length)] : SentenceSplitter.SplitRanges(run.Text))
 			{
 				int offset = range.Start.Value;
 				var (ids, tokens) = Encode(engine.SourceVocab, run.Text[range]);
@@ -207,7 +208,32 @@ internal static partial class MarkupProjection
 		return sentences;
 	}
 
-	static void TranslateSentences(List<Sentence> sentences, IReadOnlyList<TranslationModel> models, CancellationToken cancellationToken)
+	// Translates the sentences, each distinct one once; translated holds the ones already
+	// translated by token ids, and gains those of this call.
+	static void TranslateSentences(List<Sentence> sentences, Dictionary<List<int>, Sentence> translated, IReadOnlyList<TranslationModel> models, CancellationToken cancellationToken)
+	{
+		var unique = new List<Sentence>();
+		var copies = new List<(Sentence Copy, Sentence Original)>();
+		foreach (var sentence in sentences)
+		{
+			if (translated.TryGetValue(sentence.Ids, out var original))
+				copies.Add((sentence, original));
+			else
+			{
+				translated.Add(sentence.Ids, sentence);
+				unique.Add(sentence);
+			}
+		}
+		TranslateDistinct(unique, models, cancellationToken);
+		foreach (var (copy, original) in copies)
+		{
+			copy.Target = original.Target;
+			copy.TargetTokens = original.TargetTokens;
+			copy.Alignment = original.Alignment;
+		}
+	}
+
+	static void TranslateDistinct(List<Sentence> sentences, IReadOnlyList<TranslationModel> models, CancellationToken cancellationToken)
 	{
 		if (sentences.Count == 0)
 			return;
