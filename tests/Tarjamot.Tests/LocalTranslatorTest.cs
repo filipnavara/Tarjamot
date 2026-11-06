@@ -97,6 +97,16 @@ public class LocalTranslatorTest
 		Assert.That(await translator.TranslateMarkupAsync(source, target, [html]), Is.EqualTo(new[] { expected }));
 	}
 
+	// Elements with translate="no" are copied as written: a block element in place, an inline one
+	// next to the word it preceded, like <code>.
+	[Test]
+	public async Task KeepsContentWithTranslateNo()
+	{
+		using var translator = new LocalTranslator(store);
+		Assert.That(await translator.TranslateMarkupAsync("en", "ja", ["<p>Watch <span translate=\"no\">Raw</span> tonight.</p><div translate=no><p>Hello world.</p></div>"]),
+			Is.EqualTo(new[] { "<p><span translate=\"no\">Raw</span>\u4ECA\u591C\u306F\u898B\u3066\u304F\u3060\u3055\u3044\u3002</p><div translate=no><p>Hello world.</p></div>" }));
+	}
+
 	[Test]
 	public async Task DisabledIdleRetentionPreservesPivotAndCancellation()
 	{

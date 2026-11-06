@@ -129,6 +129,8 @@ chooses how the markup is put back:
 - **`ProjectedMarkupTranslator`** (the default, in this package, MIT):
   - Block elements and `<br>` are copied as written, and only the text between them is
     translated.
+  - Elements with `translate="no"` are copied as written, with their content: a block element
+    as it stands, an inline one next to the word it preceded.
   - Short cells of a table row (in two cells or more) are translated together as one sentence,
     "Mon · Tue · … · Sun", so that each has the others as context: days, not "Sun" as the
     star. The translation is split at the separators. Only cells whose markup is around their
